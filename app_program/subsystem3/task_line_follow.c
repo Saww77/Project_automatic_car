@@ -41,91 +41,79 @@ EXPORT ER line_sense(INT *l, INT *c, INT *r)
     return E_OK;
 }
 
-/* PURE decision logic. Two outer sensors cannot distinguish a centred
- * white/white reading from line loss. A confirmed curve gets a SHORT hold,
- * then both wheels resume: no unbounded remembered stopped wheel.
+/* PURE controller: threshold hysteresis plus bounded differential steering.
+ * Positive steer reduces the right wheel; negative steer reduces the left.
+ * White/white remains ambiguous with two sensors. Decay the correction instead
+ * of latching a stopped wheel or snapping immediately to straight travel.
  */
 EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
 {
     INT err = r - l;
     INT a = (err < 0) ? -err : err;
-    BOOL visible = (l >= LINE_DARK || c >= LINE_DARK || r >= LINE_DARK);
-    BOOL steering = visible && a >= POS_STRAIGHT &&
-                    (l >= LINE_DARK || r >= LINE_DARK);
-    BOOL holding = FALSE;
-
+    INT peak = (l > r) ? l : r;
+    INT desired = 0;
+    INT step = S3_STEER_STEP;
+    INT cut;
+    BOOL strong;
+    if (c > peak) { peak = c; }
+    st->seen = peak >= (st->seen ? S3_LINE_RELEASE : LINE_DARK);
     cmd->stop = FALSE;
-    cmd->left = S3_CRUISE_RPM;
-    cmd->right = S3_CRUISE_RPM;
 
-    if (steering) {
-        /* Only sustained strong evidence in the SAME direction arms a pivot. */
-        if (st->lost_ms == 0 && a >= S3_SHARP_ERROR && c < LINE_DARK &&
-            (st->last_pos >= S3_SHARP_ERROR || st->last_pos <= -S3_SHARP_ERROR) &&
-            ((err > 0 && st->last_pos > 0) ||
-             (err < 0 && st->last_pos < 0))) {
-            if (st->turn_ms < S3_TURN_CONFIRM_MS) {
-                st->turn_ms += LINE_PERIOD_MS;
+    if (st->seen) {
+        st->lost_ms = 0;
+        strong = a >= S3_SHARP_ERROR && c < S3_LINE_RELEASE;
+        if (strong) {
+            if ((err > 0 && st->last_pos >= S3_SHARP_ERROR) ||
+                (err < 0 && st->last_pos <= -S3_SHARP_ERROR)) {
+                if (st->turn_ms < S3_TURN_CONFIRM_MS) {
+                    st->turn_ms += LINE_PERIOD_MS;
+                }
+            } else {
+                st->turn_ms = LINE_PERIOD_MS;
             }
         } else {
-            st->turn_ms = (a >= S3_SHARP_ERROR && c < LINE_DARK) ?
-                          LINE_PERIOD_MS : 0;
+            st->turn_ms = 0;
         }
         st->last_pos = err;
-        st->lost_ms = 0;
-    } else if (visible) {
-        /* A centred/balanced visible line cancels turn memory immediately. */
-        st->last_pos = 0;
-        st->lost_ms = 0;
-        st->turn_ms = 0;
-        return;
-    } else {
-        if (st->lost_ms < LOST_TIMEOUT_MS) { st->lost_ms += LINE_PERIOD_MS; }
-        if (S3_IR_MASK & 0x2) {
-            if (st->lost_ms >= LOST_TIMEOUT_MS) {
-                cmd->left = 0; cmd->right = 0; cmd->stop = TRUE;
-                return;
+        if (a >= POS_STRAIGHT) {
+            cut = 2 + ((a - POS_STRAIGHT) * 10) / (1000 - POS_STRAIGHT);
+            cut = ((cut + 1) / 2) * 2;
+            if (cut > S3_CURVE_RPM - S3_INNER_RPM) {
+                cut = S3_CURVE_RPM - S3_INNER_RPM;
             }
-            holding = (st->last_pos != 0);
+            if (strong && st->turn_ms >= S3_TURN_CONFIRM_MS) {
+                cut = S3_CURVE_RPM;
+            }
+            desired = (err > 0) ? cut : -cut;
         } else {
-            holding = st->turn_ms >= S3_TURN_CONFIRM_MS &&
-                      st->lost_ms <= S3_CURVE_HOLD_MS;
-            if (!holding) {
-                st->last_pos = 0;
-                st->turn_ms = 0;
-                return;
-            }
+            step = S3_RELEASE_STEP;
         }
-        err = st->last_pos;
-        a = (err < 0) ? -err : err;
+    } else {
+        st->last_pos = 0;
+        st->turn_ms = 0;
+        if (st->lost_ms < LOST_TIMEOUT_MS) { st->lost_ms += LINE_PERIOD_MS; }
+        if ((S3_IR_MASK & 0x2) && st->lost_ms >= LOST_TIMEOUT_MS) {
+            st->steer = 0;
+            cmd->left = 0; cmd->right = 0; cmd->stop = TRUE;
+            return;
+        }
+        step = S3_RELEASE_STEP;
     }
 
-    if (a >= POS_STRAIGHT) {
-        INT inner;
-        INT cut;
-        /* Scale corrections rather than switching directly to a pivot.
-         * At the same 20 RPM outer speed, reduce the inner wheel by
-         * 2..12 RPM as the error grows. Keep all targets even for transport.
-         */
-        cut = 2 + ((a - POS_STRAIGHT) * 10) / (1000 - POS_STRAIGHT);
-        cut = ((cut + 1) / 2) * 2;
-        inner = S3_CURVE_RPM - cut;
-        if (inner < S3_INNER_RPM) { inner = S3_INNER_RPM; }
-        if (holding && inner < S3_HOLD_INNER_RPM) {
-            inner = S3_HOLD_INNER_RPM;
-        }
-        /* Tight loops still need a pivot, but only while a strong line
-         * reading persists. Never continue a stopped-wheel pivot on white.
-         */
-        if (!holding && a >= S3_SHARP_ERROR && c < LINE_DARK &&
-            st->turn_ms >= S3_TURN_CONFIRM_MS) {
-            inner = 0;
-        }
-        cmd->left = S3_CURVE_RPM;
-        cmd->right = S3_CURVE_RPM;
-        if (err > 0) { cmd->right = inner; }
-        else         { cmd->left = inner; }
+    /* Ramp the signed correction through zero on direction reversals.
+     * This also limits the restart of a previously stopped inner wheel.
+     */
+    if (desired > st->steer) {
+        st->steer += step;
+        if (st->steer > desired) { st->steer = desired; }
+    } else if (desired < st->steer) {
+        st->steer -= step;
+        if (st->steer < desired) { st->steer = desired; }
     }
+    cmd->left = S3_CRUISE_RPM;
+    cmd->right = S3_CRUISE_RPM;
+    if (st->steer > 0) { cmd->right -= st->steer; }
+    else               { cmd->left += st->steer; }
 }
 
 /* Send a command to Motion Control, only when it changes */

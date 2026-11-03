@@ -21,16 +21,17 @@
 #define JUNCTION_MIN_MS   30    /* ...for at least this long */
 
 #define LINE_PERIOD_MS    10
-#define LINE_DARK         600   /* calibrated darkness required before steering */
+#define LINE_DARK         600   /* enter tracking above this calibrated darkness */
+#define S3_LINE_RELEASE   400   /* leave tracking below this: threshold hysteresis */
+#define S3_STEER_STEP     2     /* max differential RPM change per 10 ms sample */
+#define S3_RELEASE_STEP   4     /* release a correction within 50 ms on white */
 #define POS_STRAIGHT      150
 #define POS_GENTLE        450
 #define S3_CRUISE_RPM     20    /* about 0.070 m/s with 67 mm wheels */
 #define S3_CURVE_RPM      20
 #define S3_INNER_RPM      8
-#define S3_SHARP_ERROR    750   /* strong outer-only reading required for pivot */
-#define S3_TURN_CONFIRM_MS 80   /* sustained evidence before a sharp pivot */
-#define S3_HOLD_INNER_RPM 12    /* never hold a stopped wheel after line loss */
-#define S3_CURVE_HOLD_MS  40    /* short, gentle two-sensor turn memory */
+#define S3_SHARP_ERROR    650   /* sustained outer-only evidence for tight curves */
+#define S3_TURN_CONFIRM_MS 40   /* reject isolated hits before tightening */
 #define LEVEL_STOPPED     0
 #define LOST_SUM_MAX      150
 #define LOST_TIMEOUT_MS   1000
@@ -50,7 +51,7 @@ IMPORT BOOL barcode_busy(void);
 IMPORT BOOL s3_motion_move_mm(INT mm);
 IMPORT BOOL s3_motion_turn(INT dir, INT steps);   /* dir < 0 = left, > 0 = right */
 
-typedef struct { INT last_pos; INT lost_ms; INT turn_ms; } LF_STATE;
+typedef struct { INT last_pos; INT lost_ms; INT turn_ms; INT steer; BOOL seen; } LF_STATE;
 /* Wheel commands are RPM, not speed levels. */
 typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
 
