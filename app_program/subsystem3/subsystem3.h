@@ -27,6 +27,7 @@
 #define S3_CRUISE_RPM     30    /* about 0.105 m/s with 67 mm wheels */
 #define S3_CURVE_RPM      24
 #define S3_INNER_RPM      12
+#define S3_SHARP_ERROR    600   /* tighten as soon as a clear outer-only line is seen */
 #define LEVEL_STOPPED     0
 #define LOST_SUM_MAX      150
 #define LOST_TIMEOUT_MS   1000

@@ -70,6 +70,22 @@ static void drive(unsigned w, unsigned percent)
     if (percent) s2_hw_pwm_write(reverse?b:a, (uint16_t)(percent*10u));
     wheels[w].duty=percent;
 }
+/* Robo Pico vendor demo uses throttle=0 (both inputs high) for braking.
+ * Apply only to a zero-target wheel during forward velocity steering.
+ * Full stops/faults still use the established coast path in s2_core_stop.
+ */
+static void hold_pivot_wheel(unsigned w)
+{
+#if S2_BRAKE_ZERO_WHEEL
+    unsigned a=w?RIGHT_IN_A:LEFT_IN_A, b=w?RIGHT_IN_B:LEFT_IN_B;
+    /* TOP=999, CC=1000 holds both inputs continuously high. */
+    s2_hw_pwm_write(a,1000);
+    s2_hw_pwm_write(b,1000);
+    wheels[w].duty=0; /* zero propulsion duty; electrical brake is active */
+#else
+    drive(w,0);
+#endif
+}
 void s2_core_stop(void)
 {
     drive(0,0); drive(1,0);
@@ -222,7 +238,14 @@ void s2_core_service(void)
             if(p>=wheels[w].target) { drive(w,0); continue; }
         }
         unsigned target=w?state.right_rpm:state.left_rpm;
-        if(!target) { drive(w,0); wheels[w].integral=0; stall_start[w]=0; continue; }
+        if(!target) {
+            if(state.mode==VELOCITY && (state.left_rpm || state.right_rpm)) {
+                hold_pivot_wheel(w);
+            } else { drive(w,0); }
+            wheels[w].integral=0; wheels[w].previous_error=0;
+            stall_start[w]=0;
+            continue;
+        }
         /* Reduce speed near a distance/turn target; coast overshoot still needs calibration. */
         if(state.mode!=VELOCITY && wheels[w].target-wheels[w].progress<80 && target>60) target=60;
         unsigned duty=pid(w,target);

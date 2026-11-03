@@ -56,10 +56,14 @@ int main(void) {
  assert(pwm[LEFT_IN_A]==320 && pwm[RIGHT_IN_A]==320);
  assert(pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_B]==0);
  assert(s2_core_set_wheel_levels(0,1)); tick(0,0);
- assert(pwm[LEFT_IN_A]==0 && pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_A]>0);
+ assert(pwm[LEFT_IN_A]==1000 && pwm[LEFT_IN_B]==1000 && pwm[RIGHT_IN_A]>0);
  assert(s2_core_set_wheel_levels(1,1)); tick(0,0);
- assert(pwm[LEFT_IN_A]>0 && pwm[RIGHT_IN_A]>0);
- puts("PASS: both forward PWM outputs, left stop, left restart at level 1");
+ assert(pwm[LEFT_IN_A]>0 && pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_A]>0);
+ assert(s2_core_set_wheel_rpm(24,0));tick(2,0);
+ assert(pwm[RIGHT_IN_A]==1000 && pwm[RIGHT_IN_B]==1000 && pwm[LEFT_IN_A]>0);
+ s2_core_stop();
+ assert(pwm[LEFT_IN_A]==0 && pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_A]==0 && pwm[RIGHT_IN_B]==0);
+ puts("PASS: forward outputs, left/right active pivot brakes, restart clears brake, full stop clears all outputs");
  s2_core_init(); assert(s2_core_set_wheel_levels(1,1));
  unsigned peak=0;
  for(unsigned i=0;i<40;i++) {
@@ -82,11 +86,11 @@ int main(void) {
  }
  assert(peak>350);
  assert(s2_core_set_wheel_rpm(12,24)); tick(1,2);
- assert(pwm[LEFT_IN_A]>0 && pwm[RIGHT_IN_A]>0);
+ assert(pwm[LEFT_IN_A]>0 && pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_A]>0);
  assert(s2_core_set_wheel_rpm(0,24)); tick(0,2);
- assert(pwm[LEFT_IN_A]==0 && pwm[RIGHT_IN_A]>0);
+ assert(pwm[LEFT_IN_A]==1000 && pwm[LEFT_IN_B]==1000 && pwm[RIGHT_IN_A]>0);
  assert(s2_core_set_wheel_rpm(30,30)); tick(0,2);
- assert(pwm[LEFT_IN_A]>0 && pwm[RIGHT_IN_A]>0);
+ assert(pwm[LEFT_IN_A]>0 && pwm[LEFT_IN_B]==0 && pwm[RIGHT_IN_A]>0);
  assert(!s2_core_set_wheel_rpm(241,30));
  puts("PASS: 30 RPM target overcomes old 34% correction ceiling; 12/24 RPM curve, stop/restart, bounds");
  assert(s2_transport_init()==0);
