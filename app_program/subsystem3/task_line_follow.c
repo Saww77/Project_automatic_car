@@ -59,15 +59,17 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
     cmd->right = S3_CRUISE_RPM;
 
     if (steering) {
-        /* Only sustained evidence in the SAME direction arms turn memory. */
-        if (st->lost_ms == 0 &&
+        /* Only sustained strong evidence in the SAME direction arms a pivot. */
+        if (st->lost_ms == 0 && a >= S3_SHARP_ERROR && c < LINE_DARK &&
+            (st->last_pos >= S3_SHARP_ERROR || st->last_pos <= -S3_SHARP_ERROR) &&
             ((err > 0 && st->last_pos > 0) ||
              (err < 0 && st->last_pos < 0))) {
             if (st->turn_ms < S3_TURN_CONFIRM_MS) {
                 st->turn_ms += LINE_PERIOD_MS;
             }
         } else {
-            st->turn_ms = LINE_PERIOD_MS;
+            st->turn_ms = (a >= S3_SHARP_ERROR && c < LINE_DARK) ?
+                          LINE_PERIOD_MS : 0;
         }
         st->last_pos = err;
         st->lost_ms = 0;
@@ -99,17 +101,28 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
     }
 
     if (a >= POS_STRAIGHT) {
-        INT inner = S3_INNER_RPM;
-        cmd->left = S3_CURVE_RPM;
-        cmd->right = S3_CURVE_RPM;
-        /* Start a tight turn earlier than the old 750-point threshold.
-         * During a two-sensor gap, limit coasting to 60 ms, then soften.
+        INT inner;
+        INT cut;
+        /* Scale corrections rather than switching directly to a pivot.
+         * At the same 20 RPM outer speed, reduce the inner wheel by
+         * 2..12 RPM as the error grows. Keep all targets even for transport.
          */
-        if (a >= S3_SHARP_ERROR && c < LINE_DARK &&
-            (!holding || (S3_IR_MASK & 0x2) ||
-             st->lost_ms <= S3_PIVOT_HOLD_MS)) {
+        cut = 2 + ((a - POS_STRAIGHT) * 10) / (1000 - POS_STRAIGHT);
+        cut = ((cut + 1) / 2) * 2;
+        inner = S3_CURVE_RPM - cut;
+        if (inner < S3_INNER_RPM) { inner = S3_INNER_RPM; }
+        if (holding && inner < S3_HOLD_INNER_RPM) {
+            inner = S3_HOLD_INNER_RPM;
+        }
+        /* Tight loops still need a pivot, but only while a strong line
+         * reading persists. Never continue a stopped-wheel pivot on white.
+         */
+        if (!holding && a >= S3_SHARP_ERROR && c < LINE_DARK &&
+            st->turn_ms >= S3_TURN_CONFIRM_MS) {
             inner = 0;
         }
+        cmd->left = S3_CURVE_RPM;
+        cmd->right = S3_CURVE_RPM;
         if (err > 0) { cmd->right = inner; }
         else         { cmd->left = inner; }
     }

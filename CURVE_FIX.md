@@ -1,18 +1,17 @@
 # Very slow line and curve following
 
-## Current behaviour
-- Straight target: 30 RPM on both wheels, approximately 10.5 cm/s with the configured 67 mm wheel diameter. This is a requested speed, not a measured road speed.
-- Gentle curve: outer wheel 20 RPM, inner wheel 10 RPM. Both wheels keep moving.
-- Sharp outer-only reading (left/right difference >=450): outer wheel 20 RPM and inner wheel coasting. This tightens steering earlier than the previous 750 threshold. No reverse wheel command is used.
-- Steering requires a calibrated black reading >=600 and left/right difference >=150. White-surface offsets below the black threshold do not stop a wheel.
-- The new forward-only API accepts even wheel RPM targets 0..126, encoded in a 16-bit queue command. Existing level-based APIs retain their 0..4 meaning and existing speeds.
-- At targets below 60 RPM, the integral divisor is 50 rather than 1000, allowing up to 40 percentage points of correction instead of 2. This addresses the old inability to increase duty sufficiently at low speed. Existing >=60 RPM gain is unchanged. These starting gains still need physical tuning; higher PWM corrects speed error and does not change the requested RPM.
-- Encoder, timing, stall and command timeout protections remain enabled. Faults stay latched instead of being silently cleared and retried.
+## Current behaviour (anti-zigzag revision)
+- Straight and outer-wheel turning targets are both 20 RPM (about 7 cm/s with configured 67 mm wheels). This avoids accelerating every time a sensor returns to white.
+- Ordinary corrections progressively reduce the inner target from 18 to 8 RPM according to sensor error instead of immediately stopping a wheel.
+- A sharp pivot requires at least 80 ms of consecutive strong outer-only evidence (difference >=750) in the same direction. An isolated hit, direction reversal, or weaker reading resets that confirmation.
+- A confirmed tight turn may continue gently for 40 ms through white/white. BOTH wheels move during that hold: inner target at least 12 RPM. A stopped-wheel pivot is never held after line loss.
+- Existing low-speed PID, fault latching and motor protections are unchanged from the prior 30 RPM revision.
+- Forward wheel RPM API accepts even targets 0..126. Legacy level-based APIs retain their original meaning.
 
 ## Sensor configuration and limitations
 The uploaded configuration enables only left GP26 and right GP28 (S3_IR_MASK=0x5), which is preserved. If GP27 centre is physically connected and calibrated, change the mask to 0x7. Do not enable an unconnected analogue input.
 
-With two outer sensors, white/white means either the line is correctly between the sensors or the line is completely lost. After at least 20 ms of consecutive turn evidence in one direction, the firmware briefly holds that turn through white/white. It coasts the inner wheel for at most 60 ms of missing line, then drives it at 10 RPM while the outer wheel runs at 20 RPM. At 120 ms, the hold expires and the next cycle restores both wheels to 30 RPM. A single isolated dark reading does not arm the hold. Balanced visible readings cancel the hold immediately. These bounds avoid an indefinitely stopped left wheel. The firmware still cannot reliably distinguish centred travel from total line loss with two sensors. Three sensors permit steering memory on line loss and a stop after 1000 ms without reacquisition. Three sensors improve detection; they do not remove the need for track calibration.
+With two outer sensors, white/white means either the line is correctly between the sensors or the line is completely lost. With two sensors, a confirmed strong turn gets a maximum 40 ms gentle hold through white/white, then returns to equal 20 RPM targets. Centre/balanced visible readings cancel steering immediately. A single outer-sensor hit cannot arm the hold. The firmware still cannot distinguish centred white/white from complete line loss with only two sensors. With three installed sensors enabled, complete line loss stops after 1000 ms. Three sensors improve detection; they do not remove the need for track calibration.
 
 Measure white_raw and black_raw for each installed sensor in task_line_follow.c. Values remain the uploaded assumptions (130 white, 3200 black), not measured calibration. Black must read higher than white with this conversion. Sensor placement and tape width affect when an outer sensor detects a curve.
 
@@ -29,7 +28,7 @@ This builds the default dual-core USB-console/Wi-Fi-driver profile, without MQTT
 
 ## Validation completed
 - Actual firmware built and linked with Arm GCC 14.2.1, Pico SDK 2.2.0, TinyUSB and cyw43 dependencies; a new UF2 was generated.
-- `python3 testing/subsystem3/test_line_follow.py`: actual pure line controller compiled and checked in two- and three-sensor modes, including slow straights, earlier sharp-turn entry, left/right curves, confirmed turn holds, 60 ms pivot release, 120 ms hold expiry, repeated loop edge/gap sequences, direction reversal, noise rejection, recovery timeout and 1331 bounded output combinations per mode.
+- `python3 testing/subsystem3/test_line_follow.py`: actual pure line controller compiled and checked in two- and three-sensor modes, including slow straights, earlier sharp-turn entry, left/right curves, confirmed turn holds, immediate wheel release, 40 ms soft-hold expiry, alternating-edge rejection, direction reversal, noise rejection, recovery timeout and 1331 bounded output combinations per mode.
 - `python3 testing/subsystem2/test_motion_core_host.py`: actual motor core, command transport and owner decoder checked with mocked time/PWM/encoders. All 4095 nonzero fine-RPM command pairs round-trip, invalid commands reject, zero requests stop, a stopped left wheel restarts, and a stalled wheel stops both motors. Legacy level-1 behaviour is preserved.
 These are build and simulated checks; no physical car or track was available. Curve tracking, actual speed, low-speed motor start, stopping distance and PID stability need on-car verification.
 
@@ -38,7 +37,7 @@ Test both wheels raised first, then a straight and each curve separately. USB ou
 
 Fault bits: 1 encoder count, 2 timing, 4 stall, 8 command timeout. Inspect the cause before explicitly clearing a fault or power cycling. A low-speed stall must not be hidden by repeatedly resetting faults.
 
-## Tight-loop on-car check
-The driver reported running wide on the bottom-right loop and top-left circle with TWO IR sensors. This revision specifically addresses early turn cancellation and late sharp-turn entry. It is a bounded control adjustment, not proof that the physical track is solved.
+## On-car regression feedback
+The driver reported improvement, then running wide on the bottom-right loop and top-left circle with two sensors. The 60 ms pivot hold / 120 ms turn hold revision then produced more zigzagging. This revision removes held pivots, reduces and softens the hold, requires sustained strong readings for sharp pivots, and uses a constant slower outer speed. These are tested control changes, not physical proof of stable tracking.
 
-Flash SE09_tight_curves_v2.uf2, then test a left loop and a right loop separately. Observe whether it still runs wide, now cuts inside, or stops with a fault. The first two behaviours require different tuning. Do not extend the hold indefinitely: two white outer readings also occur when the car is correctly centred. Current straight speed remains 30 RPM; turning is slower at 20 RPM.
+Flash SE09_smooth_slow_v3.uf2. Test a straight, then each loop separately. If it still zigzags, record the USB darkness/target-RPM and actual-RPM/PWM lines plus a short video showing the sensor positions; further changes need that evidence to distinguish sensor calibration, steering oscillation and motor PID oscillation. The junction-stop test remains enabled.

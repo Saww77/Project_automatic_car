@@ -24,13 +24,13 @@
 #define LINE_DARK         600   /* calibrated darkness required before steering */
 #define POS_STRAIGHT      150
 #define POS_GENTLE        450
-#define S3_CRUISE_RPM     30    /* about 0.105 m/s with 67 mm wheels */
+#define S3_CRUISE_RPM     20    /* about 0.070 m/s with 67 mm wheels */
 #define S3_CURVE_RPM      20
-#define S3_INNER_RPM      10
-#define S3_SHARP_ERROR    450   /* tighten before the outer sensor fully saturates */
-#define S3_TURN_CONFIRM_MS 20   /* require consecutive turn evidence before holding */
-#define S3_PIVOT_HOLD_MS  60
-#define S3_CURVE_HOLD_MS  120   /* hard bound on two-sensor turn memory */
+#define S3_INNER_RPM      8
+#define S3_SHARP_ERROR    750   /* strong outer-only reading required for pivot */
+#define S3_TURN_CONFIRM_MS 80   /* sustained evidence before a sharp pivot */
+#define S3_HOLD_INNER_RPM 12    /* never hold a stopped wheel after line loss */
+#define S3_CURVE_HOLD_MS  40    /* short, gentle two-sensor turn memory */
 #define LEVEL_STOPPED     0
 #define LOST_SUM_MAX      150
 #define LOST_TIMEOUT_MS   1000
