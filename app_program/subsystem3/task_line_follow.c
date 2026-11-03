@@ -41,70 +41,74 @@ EXPORT ER line_sense(INT *l, INT *c, INT *r)
     return E_OK;
 }
 
-/* PURE decision logic. l,c,r = darkness 0..1000. No hardware, no printing. */
-/* Fine RPM commands permit slow travel below the old 60 RPM minimum.
- * Two outer sensors cannot distinguish centred white/white from loss.
- * Remember steering across line loss only when the centre sensor is enabled.
+/* PURE decision logic. Two outer sensors cannot distinguish a centred
+ * white/white reading from line loss. A confirmed curve gets a SHORT hold,
+ * then both wheels resume: no unbounded remembered stopped wheel.
  */
 EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
 {
     INT err = r - l;
     INT a = (err < 0) ? -err : err;
     BOOL visible = (l >= LINE_DARK || c >= LINE_DARK || r >= LINE_DARK);
-
-    /* Reject white-surface offsets: a difference alone is not a line.
-     * Two outer sensors cannot distinguish centred white/white from loss.
-     * Clear remembered steering in that case instead of latching a pivot.
-     */
-    if (!(S3_IR_MASK & 0x2) && !visible) {
-        st->last_pos = 0;
-        st->lost_ms = 0;
-        cmd->stop = FALSE;
-        cmd->left = S3_CRUISE_RPM;
-        cmd->right = S3_CRUISE_RPM;
-        return;
-    }
+    BOOL steering = visible && a >= POS_STRAIGHT &&
+                    (l >= LINE_DARK || r >= LINE_DARK);
+    BOOL holding = FALSE;
 
     cmd->stop = FALSE;
     cmd->left = S3_CRUISE_RPM;
     cmd->right = S3_CRUISE_RPM;
 
-    if (visible) {
-        st->lost_ms = 0;
-        if (a >= POS_STRAIGHT && (l >= LINE_DARK || r >= LINE_DARK)) {
-            st->last_pos = err;
+    if (steering) {
+        /* Only sustained evidence in the SAME direction arms turn memory. */
+        if (st->lost_ms == 0 &&
+            ((err > 0 && st->last_pos > 0) ||
+             (err < 0 && st->last_pos < 0))) {
+            if (st->turn_ms < S3_TURN_CONFIRM_MS) {
+                st->turn_ms += LINE_PERIOD_MS;
+            }
         } else {
-            /* Centre seen, or a balanced wide marking: go straight. */
-            st->last_pos = 0;
+            st->turn_ms = LINE_PERIOD_MS;
         }
+        st->last_pos = err;
+        st->lost_ms = 0;
+    } else if (visible) {
+        /* A centred/balanced visible line cancels turn memory immediately. */
+        st->last_pos = 0;
+        st->lost_ms = 0;
+        st->turn_ms = 0;
+        return;
     } else {
-        if (st->lost_ms < LOST_TIMEOUT_MS) {
-            st->lost_ms += LINE_PERIOD_MS;
-        }
-        /* A working centre sensor removes the white/white ambiguity.
-         * Two-sensor mode permits centred travel between the outer sensors.
-         */
-        if ((st->last_pos != 0 || (S3_IR_MASK & 0x2)) &&
-            st->lost_ms >= LOST_TIMEOUT_MS) {
-            cmd->left = LEVEL_STOPPED;
-            cmd->right = LEVEL_STOPPED;
-            cmd->stop = TRUE;
-            return;
+        if (st->lost_ms < LOST_TIMEOUT_MS) { st->lost_ms += LINE_PERIOD_MS; }
+        if (S3_IR_MASK & 0x2) {
+            if (st->lost_ms >= LOST_TIMEOUT_MS) {
+                cmd->left = 0; cmd->right = 0; cmd->stop = TRUE;
+                return;
+            }
+            holding = (st->last_pos != 0);
+        } else {
+            holding = st->turn_ms >= S3_TURN_CONFIRM_MS &&
+                      st->lost_ms <= S3_CURVE_HOLD_MS;
+            if (!holding) {
+                st->last_pos = 0;
+                st->turn_ms = 0;
+                return;
+            }
         }
         err = st->last_pos;
         a = (err < 0) ? -err : err;
     }
 
-    /* Gentle curves retain forward drive on BOTH wheels. Only a strong
-     * outer-only reading (or three-sensor loss recovery) coasts the inner.
-     * Commands remain even RPM values for the compact transport.
-     */
     if (a >= POS_STRAIGHT) {
         INT inner = S3_INNER_RPM;
         cmd->left = S3_CURVE_RPM;
         cmd->right = S3_CURVE_RPM;
-        if (!visible || (a >= 750 && c < LINE_DARK)) {
-            inner = LEVEL_STOPPED;
+        /* Start a tight turn earlier than the old 750-point threshold.
+         * During a two-sensor gap, limit coasting to 60 ms, then soften.
+         */
+        if (a >= S3_SHARP_ERROR && c < LINE_DARK &&
+            (!holding || (S3_IR_MASK & 0x2) ||
+             st->lost_ms <= S3_PIVOT_HOLD_MS)) {
+            inner = 0;
         }
         if (err > 0) { cmd->right = inner; }
         else         { cmd->left = inner; }
@@ -179,7 +183,7 @@ LOCAL void tick_release(void *exinf) { (void)exinf; (void)tk_wup_tsk(owner_id); 
 
 EXPORT void line_follow_task(INT stacd, void *exinf)
 {
-    LF_STATE st = { 0, 0 };
+    LF_STATE st = { 0 };
     LF_CMD   cmd;
     T_CCYC   cyc = {0};
     INT  l, c, r, d, tick = 0, diag_ms = 0;
@@ -227,6 +231,7 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
         if (line_sense(&l, &c, &r) != E_OK) {
             s3_motion_stop();
             moving = FALSE; last_l = -1; last_r = -1; age_ms = 0;
+            st = (LF_STATE){0};
             continue;
         }
         /* Use current readings: smoothing both sides delayed curve response. */

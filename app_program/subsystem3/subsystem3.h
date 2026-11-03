@@ -25,8 +25,12 @@
 #define POS_STRAIGHT      150
 #define POS_GENTLE        450
 #define S3_CRUISE_RPM     30    /* about 0.105 m/s with 67 mm wheels */
-#define S3_CURVE_RPM      24
-#define S3_INNER_RPM      12
+#define S3_CURVE_RPM      20
+#define S3_INNER_RPM      10
+#define S3_SHARP_ERROR    450   /* tighten before the outer sensor fully saturates */
+#define S3_TURN_CONFIRM_MS 20   /* require consecutive turn evidence before holding */
+#define S3_PIVOT_HOLD_MS  60
+#define S3_CURVE_HOLD_MS  120   /* hard bound on two-sensor turn memory */
 #define LEVEL_STOPPED     0
 #define LOST_SUM_MAX      150
 #define LOST_TIMEOUT_MS   1000
@@ -46,7 +50,7 @@ IMPORT BOOL barcode_busy(void);
 IMPORT BOOL s3_motion_move_mm(INT mm);
 IMPORT BOOL s3_motion_turn(INT dir, INT steps);   /* dir < 0 = left, > 0 = right */
 
-typedef struct { INT last_pos; INT lost_ms; } LF_STATE;
+typedef struct { INT last_pos; INT lost_ms; INT turn_ms; } LF_STATE;
 /* Wheel commands are RPM, not speed levels. */
 typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
 
