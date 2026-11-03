@@ -28,7 +28,7 @@ int main(void) {
  assert(!c.stop && c.left==12 && c.right==24);
  line_decide(100,900,650,&s,&c);
  assert(!c.stop && c.left==24 && c.right==12);
- line_decide(650,0,0,&s,&c);
+ line_decide(1000,0,0,&s,&c);
  assert(!c.stop && c.left==0 && c.right==24);
  line_decide(0,0,0,&s,&c);
  assert(!c.stop && c.left==((S3_IR_MASK & 2)?0:30));

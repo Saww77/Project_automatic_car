@@ -1,6 +1,5 @@
 #ifndef MOTION_CONFIG_H
 #define MOTION_CONFIG_H
-#define S2_BRAKE_ZERO_WHEEL 1 /* Robo Pico: both inputs high brake a pivot wheel. */
 #define S2_PWM_DIV16 100u /* 6.25 in RP2040 8.4 format; 20kHz at 125MHz. */
 #define LEFT_IN_A 8u
 #define LEFT_IN_B 9u

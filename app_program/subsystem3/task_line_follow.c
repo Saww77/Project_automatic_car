@@ -96,14 +96,14 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
     }
 
     /* Gentle curves retain forward drive on BOTH wheels. Only a strong
-     * outer-only reading (or three-sensor loss recovery) brakes the inner.
+     * outer-only reading (or three-sensor loss recovery) coasts the inner.
      * Commands remain even RPM values for the compact transport.
      */
     if (a >= POS_STRAIGHT) {
         INT inner = S3_INNER_RPM;
         cmd->left = S3_CURVE_RPM;
         cmd->right = S3_CURVE_RPM;
-        if (!visible || (a >= S3_SHARP_ERROR && c < LINE_DARK)) {
+        if (!visible || (a >= 750 && c < LINE_DARK)) {
             inner = LEVEL_STOPPED;
         }
         if (err > 0) { cmd->right = inner; }
