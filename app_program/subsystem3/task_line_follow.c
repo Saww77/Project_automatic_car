@@ -41,79 +41,74 @@ EXPORT ER line_sense(INT *l, INT *c, INT *r)
     return E_OK;
 }
 
-/* PURE controller: threshold hysteresis plus bounded differential steering.
- * Positive steer reduces the right wheel; negative steer reduces the left.
- * White/white remains ambiguous with two sensors. Decay the correction instead
- * of latching a stopped wheel or snapping immediately to straight travel.
+/* PURE decision logic. l,c,r = darkness 0..1000. No hardware, no printing. */
+/* Fine RPM commands permit slow travel below the old 60 RPM minimum.
+ * Two outer sensors cannot distinguish centred white/white from loss.
+ * Remember steering across line loss only when the centre sensor is enabled.
  */
 EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
 {
     INT err = r - l;
     INT a = (err < 0) ? -err : err;
-    INT peak = (l > r) ? l : r;
-    INT desired = 0;
-    INT step = S3_STEER_STEP;
-    INT cut;
-    BOOL strong;
-    if (c > peak) { peak = c; }
-    st->seen = peak >= (st->seen ? S3_LINE_RELEASE : LINE_DARK);
-    cmd->stop = FALSE;
+    BOOL visible = (l >= LINE_DARK || c >= LINE_DARK || r >= LINE_DARK);
 
-    if (st->seen) {
-        st->lost_ms = 0;
-        strong = a >= S3_SHARP_ERROR && c < S3_LINE_RELEASE;
-        if (strong) {
-            if ((err > 0 && st->last_pos >= S3_SHARP_ERROR) ||
-                (err < 0 && st->last_pos <= -S3_SHARP_ERROR)) {
-                if (st->turn_ms < S3_TURN_CONFIRM_MS) {
-                    st->turn_ms += LINE_PERIOD_MS;
-                }
-            } else {
-                st->turn_ms = LINE_PERIOD_MS;
-            }
-        } else {
-            st->turn_ms = 0;
-        }
-        st->last_pos = err;
-        if (a >= POS_STRAIGHT) {
-            cut = 2 + ((a - POS_STRAIGHT) * 10) / (1000 - POS_STRAIGHT);
-            cut = ((cut + 1) / 2) * 2;
-            if (cut > S3_CURVE_RPM - S3_INNER_RPM) {
-                cut = S3_CURVE_RPM - S3_INNER_RPM;
-            }
-            if (strong && st->turn_ms >= S3_TURN_CONFIRM_MS) {
-                cut = S3_CURVE_RPM;
-            }
-            desired = (err > 0) ? cut : -cut;
-        } else {
-            step = S3_RELEASE_STEP;
-        }
-    } else {
-        st->last_pos = 0;
-        st->turn_ms = 0;
-        if (st->lost_ms < LOST_TIMEOUT_MS) { st->lost_ms += LINE_PERIOD_MS; }
-        if ((S3_IR_MASK & 0x2) && st->lost_ms >= LOST_TIMEOUT_MS) {
-            st->steer = 0;
-            cmd->left = 0; cmd->right = 0; cmd->stop = TRUE;
-            return;
-        }
-        step = S3_RELEASE_STEP;
-    }
-
-    /* Ramp the signed correction through zero on direction reversals.
-     * This also limits the restart of a previously stopped inner wheel.
+    /* Reject white-surface offsets: a difference alone is not a line.
+     * Two outer sensors cannot distinguish centred white/white from loss.
+     * Clear remembered steering in that case instead of latching a pivot.
      */
-    if (desired > st->steer) {
-        st->steer += step;
-        if (st->steer > desired) { st->steer = desired; }
-    } else if (desired < st->steer) {
-        st->steer -= step;
-        if (st->steer < desired) { st->steer = desired; }
+    if (!(S3_IR_MASK & 0x2) && !visible) {
+        st->last_pos = 0;
+        st->lost_ms = 0;
+        cmd->stop = FALSE;
+        cmd->left = S3_CRUISE_RPM;
+        cmd->right = S3_CRUISE_RPM;
+        return;
     }
+
+    cmd->stop = FALSE;
     cmd->left = S3_CRUISE_RPM;
     cmd->right = S3_CRUISE_RPM;
-    if (st->steer > 0) { cmd->right -= st->steer; }
-    else               { cmd->left += st->steer; }
+
+    if (visible) {
+        st->lost_ms = 0;
+        if (a >= POS_STRAIGHT && (l >= LINE_DARK || r >= LINE_DARK)) {
+            st->last_pos = err;
+        } else {
+            /* Centre seen, or a balanced wide marking: go straight. */
+            st->last_pos = 0;
+        }
+    } else {
+        if (st->lost_ms < LOST_TIMEOUT_MS) {
+            st->lost_ms += LINE_PERIOD_MS;
+        }
+        /* A working centre sensor removes the white/white ambiguity.
+         * Two-sensor mode permits centred travel between the outer sensors.
+         */
+        if ((st->last_pos != 0 || (S3_IR_MASK & 0x2)) &&
+            st->lost_ms >= LOST_TIMEOUT_MS) {
+            cmd->left = LEVEL_STOPPED;
+            cmd->right = LEVEL_STOPPED;
+            cmd->stop = TRUE;
+            return;
+        }
+        err = st->last_pos;
+        a = (err < 0) ? -err : err;
+    }
+
+    /* Gentle curves retain forward drive on BOTH wheels. Only a strong
+     * outer-only reading (or three-sensor loss recovery) coasts the inner.
+     * Commands remain even RPM values for the compact transport.
+     */
+    if (a >= POS_STRAIGHT) {
+        INT inner = S3_INNER_RPM;
+        cmd->left = S3_CURVE_RPM;
+        cmd->right = S3_CURVE_RPM;
+        if (!visible || (a >= 750 && c < LINE_DARK)) {
+            inner = LEVEL_STOPPED;
+        }
+        if (err > 0) { cmd->right = inner; }
+        else         { cmd->left = inner; }
+    }
 }
 
 /* Send a command to Motion Control, only when it changes */
@@ -184,7 +179,7 @@ LOCAL void tick_release(void *exinf) { (void)exinf; (void)tk_wup_tsk(owner_id); 
 
 EXPORT void line_follow_task(INT stacd, void *exinf)
 {
-    LF_STATE st = { 0 };
+    LF_STATE st = { 0, 0 };
     LF_CMD   cmd;
     T_CCYC   cyc = {0};
     INT  l, c, r, d, tick = 0, diag_ms = 0;
@@ -232,7 +227,6 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
         if (line_sense(&l, &c, &r) != E_OK) {
             s3_motion_stop();
             moving = FALSE; last_l = -1; last_r = -1; age_ms = 0;
-            st = (LF_STATE){0};
             continue;
         }
         /* Use current readings: smoothing both sides delayed curve response. */
