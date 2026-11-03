@@ -276,6 +276,7 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
             diag_ms = 0;
             tm_printf((UB*)"[S3] dark L=%d C=%d R=%d wheels L=%d R=%d stop=%d\n",
                       l, c, r, cmd.left, cmd.right, cmd.stop);
+            s3_motion_diagnostics();
         }
     }
 }

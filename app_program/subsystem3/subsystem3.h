@@ -55,6 +55,7 @@ IMPORT void line_follow_task(INT stacd, void *exinf);
 
 /* Motion Control calls go through motion_adapter.c (prints now, real later) */
 IMPORT void s3_motion_stop(void);
+IMPORT void s3_motion_diagnostics(void);
 IMPORT BOOL s3_motion_set_wheel_levels(INT left, INT right);
 
 /* IF-01: send SAMPLE_MSG (subsystem2.h) here with tk_snd_mbx */
