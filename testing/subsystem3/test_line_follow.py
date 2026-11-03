@@ -27,13 +27,19 @@ int main(void) {
  line_decide(1000,0,0,&s,&c);
  assert(!c.stop && c.left==0 && c.right==1);
  line_decide(0,0,0,&s,&c);
- assert(!c.stop && c.left==0 && c.right==1);
+ assert(!c.stop && c.left==((S3_IR_MASK & 2)?0:1) && c.right==1);
  for(int i=1;i<LOST_TIMEOUT_MS/LINE_PERIOD_MS;i++) line_decide(0,0,0,&s,&c);
- assert(c.stop && c.left==0 && c.right==0);
+ assert(c.stop == ((S3_IR_MASK & 2)!=0));
+ if(c.stop) assert(c.left==0 && c.right==0);
  line_decide(0,0,1000,&s,&c);
  assert(!c.stop && c.left==1 && c.right==0 && s.lost_ms==0);
  line_decide(0,1000,0,&s,&c);
  assert(!c.stop && c.left==1 && c.right==1 && s.last_pos==0);
+ /* White-surface imbalance must never stop one wheel. */
+ s=(LF_STATE){0,0}; line_decide(350,0,100,&s,&c);
+ assert(!c.stop && c.left==1 && c.right==1);
+ line_decide(100,0,350,&s,&c);
+ assert(!c.stop && c.left==1 && c.right==1);
  s=(LF_STATE){0,0};
  for(int i=0;i<LOST_TIMEOUT_MS/LINE_PERIOD_MS;i++) line_decide(0,0,0,&s,&c);
  assert(c.stop == ((S3_IR_MASK & 2)!=0));

@@ -21,6 +21,7 @@
 #define JUNCTION_MIN_MS   30    /* ...for at least this long */
 
 #define LINE_PERIOD_MS    10
+#define LINE_DARK         600   /* calibrated darkness required before steering */
 #define POS_STRAIGHT      150
 #define POS_GENTLE        450
 #define LEVEL_CRUISE      1

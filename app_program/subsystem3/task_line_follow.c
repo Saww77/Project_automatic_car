@@ -43,14 +43,27 @@ EXPORT ER line_sense(INT *l, INT *c, INT *r)
 
 /* PURE decision logic. l,c,r = darkness 0..1000. No hardware, no printing. */
 /* Level 1 requests 60 RPM with the current motion configuration (was 120).
- * With two outer sensors, white/white can mean centred OR lost. Remember
- * the last correction so a curve does not immediately become "straight".
+ * Two outer sensors cannot distinguish centred white/white from loss.
+ * Remember steering across line loss only when the centre sensor is enabled.
  */
 EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
 {
     INT err = r - l;
     INT a = (err < 0) ? -err : err;
-    BOOL visible = (l + c + r >= LOST_SUM_MAX);
+    BOOL visible = (l >= LINE_DARK || c >= LINE_DARK || r >= LINE_DARK);
+
+    /* Reject white-surface offsets: a difference alone is not a line.
+     * Two outer sensors cannot distinguish centred white/white from loss.
+     * Clear remembered steering in that case instead of latching a pivot.
+     */
+    if (!(S3_IR_MASK & 0x2) && !visible) {
+        st->last_pos = 0;
+        st->lost_ms = 0;
+        cmd->stop = FALSE;
+        cmd->left = LEVEL_CRUISE;
+        cmd->right = LEVEL_CRUISE;
+        return;
+    }
 
     cmd->stop = FALSE;
     cmd->left = LEVEL_CRUISE;
@@ -58,7 +71,7 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
 
     if (visible) {
         st->lost_ms = 0;
-        if (a >= POS_STRAIGHT) {
+        if (a >= POS_STRAIGHT && (l >= LINE_DARK || r >= LINE_DARK)) {
             st->last_pos = err;
         } else {
             /* Centre seen, or a balanced wide marking: go straight. */
@@ -162,7 +175,7 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
     LF_STATE st = { 0, 0 };
     LF_CMD   cmd;
     T_CCYC   cyc = {0};
-    INT  l, c, r, d, tick = 0;
+    INT  l, c, r, d, tick = 0, diag_ms = 0;
     INT  last_l = -1, last_r = -1, age_ms = 0, junc_ms = 0, fl = 0, fr = 0;
     BOOL moving = FALSE, on_junction = FALSE, halted = FALSE;
     char stored = 0, got;
@@ -258,5 +271,11 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
 
         line_decide(l, c, r, &st, &cmd);
         apply(&cmd, &moving, &last_l, &last_r, &age_ms);
+        diag_ms += LINE_PERIOD_MS;
+        if (diag_ms >= 500) {
+            diag_ms = 0;
+            tm_printf((UB*)"[S3] dark L=%d C=%d R=%d wheels L=%d R=%d stop=%d\n",
+                      l, c, r, cmd.left, cmd.right, cmd.stop);
+        }
     }
 }
