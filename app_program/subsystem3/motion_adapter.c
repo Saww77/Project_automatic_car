@@ -15,13 +15,13 @@ EXPORT void s3_motion_stop(void)
     motion_stop();
 }
 
-EXPORT BOOL s3_motion_set_wheel_levels(INT left, INT right)
+EXPORT BOOL s3_motion_set_wheel_rpm(INT left, INT right)
 {
     LOCAL unsigned reported_fault = 0;
     LOCAL INT pl = -1, pr = -1;           /* last printed, avoids console spam from resends */
 
     if (left != pl || right != pr) {
-        tm_printf((UB*)"[MOTION] wheels L=%d R=%d\n", left, right);
+        tm_printf((UB*)"[MOTION] target RPM L=%d R=%d\n", left, right);
         pl = left; pr = right;
     }
 
@@ -35,7 +35,7 @@ EXPORT BOOL s3_motion_set_wheel_levels(INT left, INT right)
         return FALSE;
     }
     reported_fault = 0;
-    if (!motion_set_wheel_levels((unsigned)left, (unsigned)right)) {
+    if (!motion_set_wheel_rpm((unsigned)left, (unsigned)right)) {
         return FALSE;                     // not ready, stop pending, or queue full
     }
     return TRUE;

@@ -42,7 +42,7 @@ EXPORT ER line_sense(INT *l, INT *c, INT *r)
 }
 
 /* PURE decision logic. l,c,r = darkness 0..1000. No hardware, no printing. */
-/* Level 1 requests 60 RPM with the current motion configuration (was 120).
+/* Fine RPM commands permit slow travel below the old 60 RPM minimum.
  * Two outer sensors cannot distinguish centred white/white from loss.
  * Remember steering across line loss only when the centre sensor is enabled.
  */
@@ -60,14 +60,14 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
         st->last_pos = 0;
         st->lost_ms = 0;
         cmd->stop = FALSE;
-        cmd->left = LEVEL_CRUISE;
-        cmd->right = LEVEL_CRUISE;
+        cmd->left = S3_CRUISE_RPM;
+        cmd->right = S3_CRUISE_RPM;
         return;
     }
 
     cmd->stop = FALSE;
-    cmd->left = LEVEL_CRUISE;
-    cmd->right = LEVEL_CRUISE;
+    cmd->left = S3_CRUISE_RPM;
+    cmd->right = S3_CRUISE_RPM;
 
     if (visible) {
         st->lost_ms = 0;
@@ -95,12 +95,19 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
         a = (err < 0) ? -err : err;
     }
 
-    /* Slow forward pivot: outer wheel at 60 RPM, inner wheel coasting.
-     * Never increase the outer-wheel speed to negotiate a bend.
+    /* Gentle curves retain forward drive on BOTH wheels. Only a strong
+     * outer-only reading (or three-sensor loss recovery) coasts the inner.
+     * Commands remain even RPM values for the compact transport.
      */
     if (a >= POS_STRAIGHT) {
-        if (err > 0) { cmd->right = LEVEL_STOPPED; }
-        else         { cmd->left = LEVEL_STOPPED; }
+        INT inner = S3_INNER_RPM;
+        cmd->left = S3_CURVE_RPM;
+        cmd->right = S3_CURVE_RPM;
+        if (!visible || (a >= 750 && c < LINE_DARK)) {
+            inner = LEVEL_STOPPED;
+        }
+        if (err > 0) { cmd->right = inner; }
+        else         { cmd->left = inner; }
     }
 }
 
@@ -113,7 +120,7 @@ LOCAL void apply(const LF_CMD *cmd, BOOL *moving, INT *last_l, INT *last_r, INT 
         return;
     }
     if (cmd->left != *last_l || cmd->right != *last_r || *age_ms >= S3_RESEND_MS) {
-        if (s3_motion_set_wheel_levels(cmd->left, cmd->right)) {
+        if (s3_motion_set_wheel_rpm(cmd->left, cmd->right)) {
             *moving = TRUE;
             *last_l = cmd->left;
             *last_r = cmd->right;
@@ -274,7 +281,7 @@ EXPORT void line_follow_task(INT stacd, void *exinf)
         diag_ms += LINE_PERIOD_MS;
         if (diag_ms >= 500) {
             diag_ms = 0;
-            tm_printf((UB*)"[S3] dark L=%d C=%d R=%d wheels L=%d R=%d stop=%d\n",
+            tm_printf((UB*)"[S3] dark L=%d C=%d R=%d target RPM L=%d R=%d stop=%d\n",
                       l, c, r, cmd.left, cmd.right, cmd.stop);
             s3_motion_diagnostics();
         }

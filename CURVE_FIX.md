@@ -1,38 +1,39 @@
-# Slow curve-following fix
+# Very slow line and curve following
 
-Reviewed the supplied firmware, project briefing and write-up. The track photo contains tight bends, loops and crossings.
+## Current behaviour
+- Straight target: 30 RPM on both wheels, approximately 10.5 cm/s with the configured 67 mm wheel diameter. This is a requested speed, not a measured road speed.
+- Gentle curve: outer wheel 24 RPM, inner wheel 12 RPM. Both wheels keep moving.
+- Sharp outer-only reading (left/right difference >=750): outer wheel 24 RPM and inner wheel coasting. No reverse wheel command is used.
+- Steering requires a calibrated black reading >=600 and left/right difference >=150. White-surface offsets below the black threshold do not stop a wheel.
+- The new forward-only API accepts even wheel RPM targets 0..126, encoded in a 16-bit queue command. Existing level-based APIs retain their 0..4 meaning and existing speeds.
+- At targets below 60 RPM, the integral divisor is 50 rather than 1000, allowing up to 40 percentage points of correction instead of 2. This addresses the old inability to increase duty sufficiently at low speed. Existing >=60 RPM gain is unchanged. These starting gains still need physical tuning; higher PWM corrects speed error and does not change the requested RPM.
+- Encoder, timing, stall and command timeout protections remain enabled. Faults stay latched instead of being silently cleared and retried.
 
-## Changes
-- Line-follow wheel requests use level 1 instead of level 2: target 60 RPM instead of 120 RPM with MAX_RPM=240. Actual speed depends on encoder/PID calibration.
-- Curve corrections coast the inner wheel and drive the outer wheel at level 1.
-- Require an outer sensor to reach LINE_DARK=600 as well as a 150-point left/right difference before steering. Weak white-surface imbalance must not command a stopped inner wheel.
-- With two sensors, white/white restores both wheels to level 1 and clears remembered steering. With three sensors enabled, retain steering through line loss and stop after 1000 ms without reacquisition.
-- Remove the extra outer-sensor smoothing delay.
-- Stop on an ADC read failure and invalidate cached wheel commands so successful reads can resume control.
+## Sensor configuration and limitations
+The uploaded configuration enables only left GP26 and right GP28 (S3_IR_MASK=0x5), which is preserved. If GP27 centre is physically connected and calibrated, change the mask to 0x7. Do not enable an unconnected analogue input.
 
-## Wiring and tuning
-The uploaded firmware enables only left GP26 and right GP28 (S3_IR_MASK=0x5); this is preserved. If all three sensors are physically installed, set S3_IR_MASK to 0x7 in app_program/subsystem3/subsystem3.h. The centre sensor then confirms centred travel and allows timeout detection when all three sensors see white. With only two sensors, centred white/white and completely missing the track are physically ambiguous; this software cannot reliably distinguish them. Two-sensor mode prioritises restoring straight travel when neither outer sensor sees black. It cannot reliably recover a completely lost line; a centre sensor is needed for unambiguous loss detection.
+With two outer sensors, white/white means either the line is correctly between the sensors or the line is completely lost. The firmware restores both wheels to 30 RPM on white/white to avoid the previous latched-left-stop regression. It cannot reliably distinguish those two physical situations. Three sensors permit steering memory on line loss and a stop after 1000 ms without reacquisition. Three sensors improve detection; they do not remove the need for track calibration.
 
-Calibrate white_raw and black_raw in task_line_follow.c separately for each installed sensor on YOUR track. Defaults remain 130 white and 3200 black; these are assumptions, not measured calibration. Confirm black gives a higher ADC reading than white. Confirm left/right wiring and motor direction with wheels raised first. If level 1 cannot turn the loaded wheels, calibrate the motion feedforward/PID rather than increasing every line-follow command blindly.
+Measure white_raw and black_raw for each installed sensor in task_line_follow.c. Values remain the uploaded assumptions (130 white, 3200 black), not measured calibration. Black must read higher than white with this conversion. Sensor placement and tape width affect when an outer sensor detects a curve.
 
-## Test on the photographed track
-1. Build using the existing README instructions and flash the newly built UF2, not an older image from the archive.
-2. Start on a straight, then test left and right loops individually. Verify the wheel nearer the line slows when an outer sensor sees black.
-3. After a bend, confirm reacquisition without excessive pivoting. Tune POS_STRAIGHT (currently 150) and LOST_TIMEOUT_MS (currently 1000) using actual sensor logs; a smaller threshold reacts earlier, a shorter timeout reduces recovery travel.
-4. In three-sensor mode, remove the line during a turn and while straight: verify recovery times out and stops. In two-sensor mode, verify both wheels resume when both outer sensors see white; automatic loss detection is unavailable.
-5. The existing STOP-at-first-junction test remains enabled, and barcode code remains disabled. Completing the full photographed route requires separate junction/barcode integration. Do not disable this stop and assume crossings are solved.
+The existing STOP-at-first-junction test remains enabled, and barcode navigation remains disabled. The photographed course has crossings and barcodes, so completing the full route requires that separate integration. A junction halt is intentional in this firmware.
 
-## Validation
-Run: python3 testing/subsystem3/test_line_follow.py
-PASS for both 0x5 and 0x7 configurations: straight, left/right curves, loss recovery, timeout stop, reacquisition, and 1331 output-bound combinations per configuration. Tests compile the actual line_decide function using host GCC.
-Full firmware build attempted but blocked: arm-none-eabi-gcc is not installed in this cloud machine; Pico SDK is also not configured. No new UF2 was generated. Hardware curve performance, stopping distance, sensor calibration and motor tuning have not been validated.
+## Build and flash
+Follow README.md for the Pico SDK and Arm compiler. From build_make run `make -j2`. Flash the NEW `mtk3pico_smp1_usb_cdc_wifi.uf2` using BOOTSEL. Older firmware from the original ZIP does not contain these changes.
 
-## Left wheel stopped on straight: diagnostic
-The earlier controller could stop the left wheel for a modest left/right sensor offset, then retain that pivot on white/white. The revised controller rejects readings below LINE_DARK before steering and clears turn memory on white/white in two-sensor mode. Every 500 ms, the USB console now prints calibrated darkness and requested wheel levels.
-- `wheels L=0 R=1`: the controller sees a left-line correction. Check reported darkness, sensor placement and white/black calibration.
-- `wheels L=1 R=1` with the left wheel physically stationary: both wheels are being requested; inspect motion fault output, left encoder/motor wiring and low-speed PID/feedforward. A level-1 target does not guarantee the motor can overcome static friction.
-Do not increase speed or change motor polarity without confirming which case applies. Full firmware build and physical verification remain outstanding.
+In this cloud workspace the verified tools are available with:
+```
+PATH=/workspace/tooling/arm/usr/bin:$PATH PICO_SDK_PATH=/workspace/tooling/pico-sdk make -C /workspace/Project_automatic_car/build_make -j2
+```
+This builds the default dual-core USB-console/Wi-Fi-driver profile, without MQTT. Wi-Fi credentials are excluded from Git.
 
-## Motor-core investigation
-`python3 testing/subsystem2/test_motion_core_host.py` compiles the actual motion core against mocked PWM/time/encoder inputs. It verifies both level-1 outputs, a stopped left wheel restarting on a straight request, and stall protection stopping both wheels. With current gains, a stationary wheel receives 32% initially and at most 34% PWM (integral contribution limited to 2%). This proves a low-speed drive limitation, not the actual motor's required starting duty. Motor gains and duty have not been changed without calibration.
-The line task now reports actual encoder RPM, PWM duty and motion fault flags every 500 ms. The adapter no longer automatically clears faults and restarts: faults remain latched until an explicit reset after inspecting the cause (a power cycle also resets state). Fault bits: 1 encoder count, 2 timing, 4 stall, 8 timeout. This prevents repeated stall/restart cycles from obscuring the failure.
+## Validation completed
+- Actual firmware built and linked with Arm GCC 14.2.1, Pico SDK 2.2.0, TinyUSB and cyw43 dependencies; a new UF2 was generated.
+- `python3 testing/subsystem3/test_line_follow.py`: actual pure line controller compiled and checked in two- and three-sensor modes, including slow straights, both gentle and sharp curve directions, recovery, timeout, white-surface imbalance and 1331 bounded output combinations per mode.
+- `python3 testing/subsystem2/test_motion_core_host.py`: actual motor core, command transport and owner decoder checked with mocked time/PWM/encoders. All 4095 nonzero fine-RPM command pairs round-trip, invalid commands reject, zero requests stop, a stopped left wheel restarts, and a stalled wheel stops both motors. Legacy level-1 behaviour is preserved.
+These are build and simulated checks; no physical car or track was available. Curve tracking, actual speed, low-speed motor start, stopping distance and PID stability need on-car verification.
+
+## On-car check
+Test both wheels raised first, then a straight and each curve separately. USB output every 500 ms shows `[S3] dark ... target RPM ...` and `[MOTION] actual rpm ... PWM ... faults ...`. If one wheel has nonzero target but zero actual RPM, use its PWM and fault evidence to tune low-speed control rather than increasing cruise RPM. Tune KI_LOW_SPEED_DEN only using measured response; a larger divisor reduces integral action.
+
+Fault bits: 1 encoder count, 2 timing, 4 stall, 8 command timeout. Inspect the cause before explicitly clearing a fault or power cycling. A low-speed stall must not be hidden by repeatedly resetting faults.

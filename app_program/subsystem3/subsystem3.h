@@ -24,8 +24,9 @@
 #define LINE_DARK         600   /* calibrated darkness required before steering */
 #define POS_STRAIGHT      150
 #define POS_GENTLE        450
-#define LEVEL_CRUISE      1
-#define LEVEL_SLOW        1
+#define S3_CRUISE_RPM     30    /* about 0.105 m/s with 67 mm wheels */
+#define S3_CURVE_RPM      24
+#define S3_INNER_RPM      12
 #define LEVEL_STOPPED     0
 #define LOST_SUM_MAX      150
 #define LOST_TIMEOUT_MS   1000
@@ -46,6 +47,7 @@ IMPORT BOOL s3_motion_move_mm(INT mm);
 IMPORT BOOL s3_motion_turn(INT dir, INT steps);   /* dir < 0 = left, > 0 = right */
 
 typedef struct { INT last_pos; INT lost_ms; } LF_STATE;
+/* Wheel commands are RPM, not speed levels. */
 typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
 
 IMPORT INT  ir_read(INT ch);
@@ -56,7 +58,7 @@ IMPORT void line_follow_task(INT stacd, void *exinf);
 /* Motion Control calls go through motion_adapter.c (prints now, real later) */
 IMPORT void s3_motion_stop(void);
 IMPORT void s3_motion_diagnostics(void);
-IMPORT BOOL s3_motion_set_wheel_levels(INT left, INT right);
+IMPORT BOOL s3_motion_set_wheel_rpm(INT left, INT right);
 
 /* IF-01: send SAMPLE_MSG (subsystem2.h) here with tk_snd_mbx */
 IMPORT ID	mbx_samples;

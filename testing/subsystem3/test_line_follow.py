@@ -23,32 +23,37 @@ tests = '''
 int main(void) {
  LF_STATE s={0,0}; LF_CMD c;
  line_decide(0,1000,0,&s,&c);
- assert(!c.stop && c.left==1 && c.right==1);
+ assert(!c.stop && c.left==30 && c.right==30);
+ line_decide(650,900,100,&s,&c);
+ assert(!c.stop && c.left==12 && c.right==24);
+ line_decide(100,900,650,&s,&c);
+ assert(!c.stop && c.left==24 && c.right==12);
  line_decide(1000,0,0,&s,&c);
- assert(!c.stop && c.left==0 && c.right==1);
+ assert(!c.stop && c.left==0 && c.right==24);
  line_decide(0,0,0,&s,&c);
- assert(!c.stop && c.left==((S3_IR_MASK & 2)?0:1) && c.right==1);
+ assert(!c.stop && c.left==((S3_IR_MASK & 2)?0:30));
+ assert(c.right==((S3_IR_MASK & 2)?24:30));
  for(int i=1;i<LOST_TIMEOUT_MS/LINE_PERIOD_MS;i++) line_decide(0,0,0,&s,&c);
  assert(c.stop == ((S3_IR_MASK & 2)!=0));
  if(c.stop) assert(c.left==0 && c.right==0);
  line_decide(0,0,1000,&s,&c);
- assert(!c.stop && c.left==1 && c.right==0 && s.lost_ms==0);
+ assert(!c.stop && c.left==24 && c.right==0 && s.lost_ms==0);
  line_decide(0,1000,0,&s,&c);
- assert(!c.stop && c.left==1 && c.right==1 && s.last_pos==0);
- /* White-surface imbalance must never stop one wheel. */
+ assert(!c.stop && c.left==30 && c.right==30 && s.last_pos==0);
  s=(LF_STATE){0,0}; line_decide(350,0,100,&s,&c);
- assert(!c.stop && c.left==1 && c.right==1);
+ assert(!c.stop && c.left==30 && c.right==30);
  line_decide(100,0,350,&s,&c);
- assert(!c.stop && c.left==1 && c.right==1);
+ assert(!c.stop && c.left==30 && c.right==30);
  s=(LF_STATE){0,0};
  for(int i=0;i<LOST_TIMEOUT_MS/LINE_PERIOD_MS;i++) line_decide(0,0,0,&s,&c);
  assert(c.stop == ((S3_IR_MASK & 2)!=0));
  for(int l=0;l<=1000;l+=100) for(int m=0;m<=1000;m+=100)
  for(int r=0;r<=1000;r+=100) {
   s=(LF_STATE){0,0}; line_decide(l,m,r,&s,&c);
-  assert(c.left>=0 && c.left<=1 && c.right>=0 && c.right<=1);
+  assert(c.left>=0 && c.left<=30 && c.right>=0 && c.right<=30);
+  assert(c.left%2==0 && c.right%2==0);
  }
- puts("PASS: straight, both curves, recovery, timeout, reacquisition, sensor modes, 1331 bounded outputs");
+ puts("PASS: 30 RPM straight, gentle/sharp curves, recovery, sensor modes, 1331 bounded RPM outputs");
 }
 '''
 with tempfile.TemporaryDirectory() as folder:

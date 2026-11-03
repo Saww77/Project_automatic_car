@@ -25,7 +25,8 @@
    Preliminary gains only. Measurement is filtered; all must be tuned on hardware. */
 #define KP_NUM 12
 #define KP_DEN 100
-#define KI_DEN 1000 /* Existing saved value; copy your final tuned value here if different. */
+#define KI_DEN 1000 /* Legacy gain for targets >= 60 RPM. */
+#define KI_LOW_SPEED_DEN 50 /* Below 60 RPM: up to 40% integral correction; tune on track. */
 #define KD_NUM 0 /* Derivative supported but disabled initially to avoid quantised noise. */
 #define KD_DEN 100
 #define INTEGRAL_LIMIT 2000
