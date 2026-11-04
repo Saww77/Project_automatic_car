@@ -256,3 +256,7 @@ They need the SDK's `lib/lwip` submodule and a `config/wifi_secrets.h`
 *micro T-Kernel 3.0 © Ken Sakamura / TRON Forum, distributed under the
 T-License 2.2. This dual-core RP2040 port is derived from the official
 μT-Kernel 3.0 BSP (`tron-forum/mtk3_bsp`, branch `pico_rp2040`).*
+
+## Vehicle controller and telemetry
+
+See [VEHICLE_CONTROLLER.md](VEHICLE_CONTROLLER.md) for central motion ownership, binary MQTT telemetry, Wi-Fi/broker configuration, laptop monitoring and START/STOP commands. The normal build retains autostart; `NET=lwip MQTT=1` boots stopped until a valid MQTT START. Both retain the existing first-junction stop; autonomous barcode turns and obstacle bypass remain unimplemented.

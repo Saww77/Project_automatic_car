@@ -1,3 +1,5 @@
+> Vehicle-controller integration: line_decide() and motor tuning remain at the restored baseline. The line task now submits recommendations to the central controller using a direct 10 ms release, rather than writing motor commands. MQTT builds wait for START. See VEHICLE_CONTROLLER.md for the new ownership, telemetry and startup behaviour. Physical curve performance remains unverified.
+
 # Rollback after v4 failed to turn
 
 The driver reported that v4 no longer turned sufficiently into curves. The curve controller, header and regression tests have been restored exactly from b41f50c, the earlier version reported as improved. This restores immediate steering, 30 RPM straights and 24 RPM outer-wheel turns. It removes subsequent turn holds and steering ramps. It does not resolve the previously reported tight-loop limitation.

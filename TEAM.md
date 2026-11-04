@@ -191,3 +191,9 @@ limit there. The numbers below are the example's usage.
 | Alarm handler | 12 | | | | 1 | |
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
+
+## Vehicle controller integration
+
+Vehicle controller task: priority15, physical core0 (TP_PRC1); one priority-inheritance snapshot mutex. Buddy2 remains the motor/PWM/encoder owner on core1. Buddy3 produces latest-value line recommendations; Buddy1 submits START/STOP intents and publishes snapshots. Both no longer issue normal motion commands directly. STOP is a priority latch; startup defaults differ between normal/autostart and MQTT/wait-for-START builds.
+
+Integration interfaces: vehicle_submit_line / vehicle_invalidate_line (Buddy3 → controller), vehicle_request_start / stop (Buddy1 → controller), vehicle_get_snapshot (controller → Buddy1 telemetry), vehicle_submit_terrain / obstacle (future real Buddy4/5 producers → controller). Terrain/obstacle producers are not fabricated or enabled by this integration. See VEHICLE_CONTROLLER.md for schema, tests, timing and limits.
