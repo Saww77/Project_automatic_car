@@ -28,6 +28,7 @@
           <button id="stop" class="command stop" disabled><span class="button-icon stop-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/></svg></span><span class="button-word">STOP</span><span class="button-caption">Request stop</span></button>
         </div>
         <div class="command-feedback" id="command-feedback" aria-live="polite">No command sent from this dashboard.</div>
+        <button id="reset" class="reset-control" disabled>Reset fault</button><p class="metric-note">Reset is available only when stopped on a motor fault. It never starts the car.</p>
         <div class="control-note"><span class="note-icon">i</span><p>START/STOP go through the vehicle controller. An ACK confirms a submitted request, not physical movement.</p></div>
       </section>
 

@@ -11,3 +11,7 @@ Executed in the cloud workspace; all commands below passed.
 - Changed tracked files passed `git -c core.whitespace=cr-at-eol diff --check`.
 
 Not run: live Pico execution, real Wi-Fi association/reconnection, broker delivery and dashboard against the physical car, motor timing under on-car load, curve/loop completion, barcode-directed navigation and obstacle bypass. Host mocks do not establish those outcomes. See VEHICLE_CONTROLLER.md for the on-car sequence and remaining subsystem hooks.
+
+## Timing recovery revision
+
+A user screenshot identified a latched Control timing fault. Host motor tests now verify that14.5 ms bounded jitter is tolerated,21 ms missed-release timing stops both outputs and records the measured gap, explicit clear remains IDLE, and fractional RPM filtering reaches zero without pulses. Controller/command-task tests verify stopped-only binary RESET02 / ACK04, no automatic START, a separate START after fault clearance, and gap/limit diagnostic fields. Dashboard tests total23 and the real local broker/browser test exercises reset-button availability, exact RESET payload and IDLE after reset. Both firmware profiles build without warnings. Priority/core-affinity changes and physical timing under the user's Wi-Fi load remain unverified on hardware; a recurring fault must be diagnosed using the displayed measured gap/limit.

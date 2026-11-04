@@ -17,7 +17,8 @@
 #define LEFT_CPR_X10 6363u
 #define RIGHT_CPR_X10 6330u
 #define MAX_RPM 240u /* Initial observed-speed reference, NOT a proven bound. */
-#define MAX_CONTROL_GAP_US 11000u /* Exceeding this while moving stops the test. */
+#define S2_TIMING_SLACK_US 5000u /* Bounded jitter; a missed 20 ms release still faults. */
+#define MAX_CONTROL_GAP_US (S2_PERIOD_MS*1000u+S2_TIMING_SLACK_US)
 #define MAX_DISTANCE_MM 2000u
 #define STALL_US 500000u
 #define MOVE_TIMEOUT_US 30000000u
@@ -31,9 +32,9 @@
 #define KD_DEN 100
 #define INTEGRAL_LIMIT 2000
 
-/* TODO TEAM: replace these defaults after agreeing the scheduling/core allocation.
-   Priority 14 retains the provided TEAM.md band; it is NOT a claim of highest priority. */
-#define S2_MOTION_PRIORITY 14
+/* Priority5 is the first application priority. Keep motor control on core1;
+   Wi-Fi, USB and communication publishing stay on core0. See TEAM.md. */
+#define S2_MOTION_PRIORITY 5
 #define S2_TASK_AFFINITY TP_PRC2
 #define S2_PERIOD_MS 10u
 #define S2_STARTUP_DELAY_MS 5000u

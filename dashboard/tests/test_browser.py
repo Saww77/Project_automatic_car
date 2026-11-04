@@ -59,9 +59,14 @@ def main():
         def on_subscribe(client, userdata, mid, reasons, properties):
             subscribed.set()
         def on_message(client, userdata, message):
-            assert message.payload in (b"\x00", b"\x01")
+            assert message.payload in (b"\x00", b"\x01", b"\x02")
             commands.append((bytes(message.payload), message.qos, bool(message.retain)))
-            client.publish(root + "/ack", message.payload, qos=0, retain=False)
+            client.publish(root + "/ack", b"\x04" if message.payload==b"\x02" else message.payload, qos=0, retain=False)
+            if message.payload==b"\x02":
+                cleared=bytearray(31);cleared[0]=2;cleared[4]=1|2|64;cleared[29:31]=(15000).to_bytes(2,"little")
+                client.publish(root+"/controller",cleared)
+                idle=bytearray(motion_packet());idle[0]&=~3
+                client.publish(root+"/motion",idle);client.publish(root+"/vehicle",b"\x00")
         fixture.on_connect, fixture.on_subscribe, fixture.on_message = on_connect, on_subscribe, on_message
         fixture.connect("127.0.0.1", port, 60)
         fixture.loop_start()
@@ -166,6 +171,22 @@ def main():
             fixture.publish(root + "/controller",diag).wait_for_publish(timeout=5)
             expect(page.locator("#start")).to_be_enabled()
             print("PASS diagnostics: specific START blocker, IR values, disabled START and preserved STOP; clearing blocker enables retry")
+            fault_diag=bytearray(31);fault_diag[0]=2;fault_diag[1]=5;fault_diag[3]=3;fault_diag[4]=1|2|64;fault_diag[5]=2
+            fault_diag[25:29]=(12000).to_bytes(4,"little");fault_diag[29:31]=(15000).to_bytes(2,"little")
+            fault_motor=bytearray(motion_packet(2));fault_motor[0]&=~3
+            fixture.publish(root+"/controller",fault_diag).wait_for_publish(timeout=5)
+            fixture.publish(root+"/motion",fault_motor).wait_for_publish(timeout=5)
+            fixture.publish(root+"/vehicle",bytes([5|(1<<3)])).wait_for_publish(timeout=5)
+            expect(page.locator("#motor-faults")).to_contain_text("Gap 12.00 ms / limit 15.00 ms")
+            expect(page.locator("#reset")).to_be_enabled()
+            page.locator("#reset").click()
+            expect(page.locator("#command-feedback")).to_have_text("Pico ACK: RESET accepted for processing.")
+            expect(page.locator("#mission-state")).to_have_text("IDLE")
+            expect(page.locator("#reset")).to_be_disabled()
+            assert commands[-1]==(b"\x02",0,False) and len(commands)==5
+            print("PASS fault recovery: stopped-only RESET sends02, clears fixture fault, leaves mission IDLE and never sends START")
+            fixture.publish(root+"/vehicle",b"\x01").wait_for_publish(timeout=5)
+            fixture.publish(root+"/motion",motion_packet()).wait_for_publish(timeout=5)
             # Fresh signal for a representative desktop screenshot.
             fixture.publish(root + "/status", b"\x07", qos=0, retain=True).wait_for_publish(timeout=5)
             page.wait_for_timeout(1100)
@@ -192,7 +213,7 @@ def main():
             broker.wait(timeout=5)
             expect(page.locator("#pico-state")).to_have_text("Broker unavailable")
             assert page.locator("#start").is_disabled() and page.locator("#stop").is_disabled()
-            assert len(commands) == 4  # No automatic command/replay.
+            assert len(commands) == 5  # No automatic command/replay.
             assert not errors, errors
             print("PASS browser: broker loss disables controls; no auto-command; no JavaScript errors")
             browser.close()

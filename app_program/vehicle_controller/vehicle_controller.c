@@ -1,5 +1,7 @@
 #include "vehicle_controller.h"
 #include "../subsystem2/subsystem2.h"
+#include "../subsystem2/motion_core.h"
+#include "../subsystem2/motion_config.h"
 #include "../subsystem1/s1_comm.h"
 #ifndef VC_AUTO_START
 #if TM_MQTT
@@ -12,7 +14,8 @@
 static ID guard;
 static VEHICLE_SNAPSHOT data;
 static VC_MODEL model;
-static BOOL start_pending,stop_pending,auto_pending;
+static BOOL start_pending,stop_pending,auto_pending,reset_pending;
+static uint32_t reset_refreshed;
 static uint32_t now_ms(void) { SYSTIM t;tk_get_tim(&t);return t.lo; }
 static BOOL lock(void) { return guard>0 && tk_loc_mtx(guard,TMO_FEVR)>=E_OK; }
 static void unlock(void) { (void)tk_unl_mtx(guard); }
@@ -22,7 +25,7 @@ ER vehicle_init(void)
     guard=tk_cre_mtx(&m);
     if(guard<E_OK)return guard;
     data=(VEHICLE_SNAPSHOT){0};model=(VC_MODEL){0};
-    start_pending=stop_pending=FALSE;auto_pending=VC_AUTO_START;
+    start_pending=stop_pending=reset_pending=FALSE;auto_pending=VC_AUTO_START;
     return E_OK;
 }
 void vehicle_submit_line(INT l,INT c,INT r,INT left,INT right,BOOL stop,unsigned barcode)
@@ -39,8 +42,17 @@ void vehicle_submit_line(INT l,INT c,INT r,INT left,INT right,BOOL stop,unsigned
 }
 void vehicle_invalidate_line(void)
 { if(lock()){data.line_valid=FALSE;unlock();} }
+BOOL vehicle_request_reset(void)
+{
+    S2_STATUS motor={{0}};
+    if(!motion_get_status(&motor) || s2_get_bits(&motor,0,2)!=0)return FALSE;
+    if(!lock())return FALSE;
+    BOOL ok=!model.running && !start_pending && !reset_pending && s2_get_bits(&motor,5,4)!=0;
+    if(ok){reset_pending=TRUE;reset_refreshed=now_ms()-VC_REFRESH_MS;auto_pending=FALSE;}
+    unlock();return ok;
+}
 void vehicle_request_stop(void)
-{ if(lock()){stop_pending=TRUE;start_pending=FALSE;auto_pending=FALSE;unlock();} }
+{ if(lock()){stop_pending=TRUE;start_pending=reset_pending=FALSE;auto_pending=FALSE;unlock();} }
 static VC_START_BLOCK start_block(BOOL ready,BOOL linked,unsigned faults,uint32_t now)
 {
     if(faults)return VC_START_MOTOR;
@@ -50,7 +62,7 @@ static VC_START_BLOCK start_block(BOOL ready,BOOL linked,unsigned faults,uint32_
     if(now-data.line_timestamp_ms>VC_LINE_MAX_AGE_MS)return VC_START_OLD_LINE;
     if(data.line_stop)return VC_START_LINE_STOP;
     if(data.obstacle_blocked)return VC_START_OBSTACLE;
-    if(stop_pending)return VC_START_STOP_PENDING;
+    if(stop_pending || reset_pending)return VC_START_STOP_PENDING;
     return VC_START_READY;
 }
 BOOL vehicle_request_start(void)
@@ -96,8 +108,10 @@ BOOL vehicle_get_snapshot(VEHICLE_SNAPSHOT *out)
 #endif
     if(!lock())return FALSE;
     *out=data;out->timestamp_ms=now_ms();out->motor_ready=ready;out->link_ready=linked;
-    out->start_pending=start_pending;out->stop_pending=stop_pending;
+    out->start_pending=start_pending;out->stop_pending=stop_pending;out->reset_pending=reset_pending;
     out->motor_faults=s2_get_bits(&motor,5,4);
+    out->timing_fault_gap_us=s2_core_timing_fault_gap_us();
+    out->control_gap_limit_us=MAX_CONTROL_GAP_US;
     out->start_block=start_block(ready,linked,out->motor_faults,out->timestamp_ms);
     unlock();return TRUE;
 }
@@ -118,6 +132,7 @@ static void vehicle_service_once(void)
 #endif
         if(lock()){
             now=now_ms(); /* sample after acquiring the input snapshot */
+            BOOL reset=reset_pending;
             VC_INPUT in={0};VC_OUTPUT out;
             in.ready=ready;in.motor_faults=s2_get_bits(&status,5,4);
             in.link_required=TM_MQTT;in.link_ok=linked;
@@ -132,6 +147,13 @@ static void vehicle_service_once(void)
             vc_core_step(&model,&in,&out);
             data.state=model.state;data.reason=model.reason;data.motor_faults=in.motor_faults;
             unlock();
+            if(reset && out.stop){
+                if(!in.motor_faults){
+                    if(lock()){reset_pending=FALSE;model=(VC_MODEL){0};data.state=VC_IDLE;data.reason=VC_REASON_NONE;unlock();}
+                }else if((uint32_t)(now-reset_refreshed)>=VC_REFRESH_MS){
+                    if(motion_clear_faults())reset_refreshed=now;
+                }
+            }
             if(out.stop){
                 if(moving){motion_stop();moving=FALSE;last_l=last_r=127;}
             }else if(out.left_rpm!=last_l||out.right_rpm!=last_r||now-refreshed>=VC_REFRESH_MS){

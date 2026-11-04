@@ -9,6 +9,7 @@
 ER vehicle_init(void);
 ER vehicle_start_task(void);
 BOOL vehicle_request_start(void); /* accepted for processing, not motion completed */
+BOOL vehicle_request_reset(void); /* stopped-only, never resumes movement */
 void vehicle_request_stop(void);  /* priority latch; cancels a pending START */
 void vehicle_submit_line(INT l,INT c,INT r,INT left,INT right,BOOL stop,unsigned barcode);
 void vehicle_invalidate_line(void);
@@ -25,9 +26,9 @@ typedef struct {
     uint32_t timestamp_ms,line_timestamp_ms,terrain_timestamp_ms,obstacle_timestamp_ms;
     INT l,c,r; unsigned left_rpm,right_rpm,barcode,motor_faults;
     unsigned height_mm,terrain_phase,near_mm,width_mm,clear_left_mm,clear_right_mm;
-    unsigned telemetry_drops;
+    unsigned telemetry_drops,timing_fault_gap_us,control_gap_limit_us;
     VC_START_BLOCK start_block,last_start_reject;
-    BOOL motor_ready,link_ready,start_pending,stop_pending;
+    BOOL motor_ready,link_ready,start_pending,stop_pending,reset_pending;
     BOOL line_valid,line_stop,terrain_valid,obstacle_valid,obstacle_blocked;
 } VEHICLE_SNAPSHOT;
 BOOL vehicle_get_snapshot(VEHICLE_SNAPSHOT *out);

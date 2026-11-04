@@ -50,7 +50,7 @@ All payloads are BINARY, not JSON. Bit0 is the least-significant bit of byte0; m
 | `/line` |1| L/C/R black flags bits 0/1/2; barcode bits 3–5 (0 none;1..4 A..D). Current barcode producer reports0 because decoding is disabled. |
 | `/terrain` |2| height bits 0–10 (mm); phase bits11–13 |
 | `/obstacle` |6| nearest0:12, width12:11, left clearance23:12, right clearance35:12 (mm) |
-| `/command` |1|0x00 STOP,0x01 START; text `START` is invalid |
+| `/command` |1|0x00 STOP,0x01 START,0x02 stopped-only RESET; text commands are invalid |
 | `/ack` |1| bit 0 requested command; bit 1 rejection. Positive ACK means accepted for processing, not motor movement/completion. |
 
 Vehicle S1 fault bits: motor1, encoder2, IMU4, no-echo8, Wi-Fi16. Raw S2 motor faults remain separately available in `/motion` (count1, timing2, stall4, timeout8). In the current controller only real motor/link faults are mapped; missing IMU/ultrasonic measurements are not fabricated as valid zero measurements.
@@ -119,3 +119,13 @@ Blockers:0 ready,1 motor startup,2 network/subscription,3 motor fault,4 STOP pen
 A concrete startup bug was corrected: the existing junction test could latch during the five-second motor startup or IDLE and block the first START. Its timer now runs only during FOLLOW_LINE. Once a real running junction stop occurs, the original test remains latched until restart. Do not bypass motor faults or invalid/stale line guards.
 
 The dashboard shows a specific START blocker, normalized IR darkness, target RPM, line age and local drop count. It disables START on a fresh nonzero blocker and keeps STOP available. If using older firmware without diagnostics, it reports diagnostics unavailable rather than inventing a reason. The screenshot displaying `Request forward` and the Buddy2 direct-motion note identifies the older dashboard.
+
+## Control-timing fault and explicit reset
+
+A physical-car screenshot reported a latched motor Control timing fault after roughly two seconds. This is distinct from line loss, junction stop and broker disconnection. The original nominal10 ms motor loop allowed only1 ms jitter (11 ms maximum) and could be pre-empted by communication at priority13 while its own priority was14. The motion owner now runs at priority5 on core1; Buddy1 communication is pinned to core0. Deadline-critical PID runs before queue/status mutex work. The bounded gap limit is now15 ms; a missed20 ms release still faults. PID I/D terms scale by elapsed microseconds, retaining the nominal10 ms gains. No stall, encoder or command timeout check is disabled. Physical timing under Wi-Fi load still needs verification.
+
+Fractional RPM filtering also fixes the old stopped-display rounding equilibrium that could retain a false2 RPM on both wheels. With no pulses, measured RPM now decays to zero.
+
+New explicit command byte02 requests RESET only when stopped with a motor fault and no pending START. ACK04 accepts RESET for processing; ACK06 rejects it. Original STOP00/START01 and ACK00..03 remain unchanged. The vehicle controller owns and retries the queued clear until it observes zero motor faults, then enters IDLE. It never starts the car; a separate START is required. STOP cancels a pending reset. Dashboard RESET requires fresh stopped-motor diagnostics, and is disabled on older firmware. Reset does not bypass invalid/stale IR, obstacle or junction checks.
+
+Controller diagnostics version2 uses31 bytes. Bytes0..24 retain version1 field offsets, except byte0=2 and readiness bit7=reset-pending. Bytes25..28 add the latched timing gap in microseconds (uint32 LE), bytes29..30 the active gap limit (uint16 LE). The dashboard accepts both version1/25-byte and version2/31-byte messages; it displays measured gap versus limit alongside a timing fault. New internal transport payload remains within the32-byte limit.

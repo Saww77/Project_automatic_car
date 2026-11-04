@@ -8,22 +8,23 @@ TELEMETRY_TOPICS = ('vehicle', 'motion', 'line', 'terrain', 'obstacle', 'control
 def command_payload(command):
     if command == 'start': return b'\x01'
     if command == 'stop': return b'\x00'
-    raise ValueError('command must be start or stop')
+    if command == 'reset': return b'\x02'
+    raise ValueError('command must be start, stop or reset')
 
 def decode_telemetry(kind, payload):
     sizes = dict(vehicle=1, motion=9, line=1, terrain=2, obstacle=6, controller=25)
-    if kind not in sizes or len(payload) != sizes[kind]:
+    if kind not in sizes or len(payload) not in ((25,31) if kind=='controller' else (sizes[kind],)):
         raise ValueError('Incorrect binary telemetry length')
     word = int.from_bytes(payload, 'little')
     def bits(offset, width): return (word >> offset) & ((1 << width) - 1)
     if kind == 'controller':
-        if payload[0] != 1 or payload[1] >= len(STATES) or payload[2] > 6 or payload[3] > 8 or payload[24] > 8 or payload[4] & 128 or payload[5] > 15:
+        if (payload[0],len(payload)) not in ((1,25),(2,31)) or payload[1] >= len(STATES) or payload[2] > 6 or payload[3] > 8 or payload[24] > 8 or (payload[0]==1 and payload[4] & 128) or payload[5] > 15:
             raise ValueError('Invalid controller diagnostics')
         raw = [int.from_bytes(payload[i:i+2], 'little') for i in (6,8,10)]
         if max(raw)>1000 or max(payload[12:14])>126 or any(x%2 for x in payload[12:14]):
             raise ValueError('Invalid controller sensor or target range')
         blocks = ('Ready for START', 'Motor startup not ready', 'Wi-Fi/MQTT not ready',
-                  'Motor fault latched', 'STOP pending', 'No valid IR readings',
+                  'Motor fault latched', 'STOP / reset pending', 'No valid IR readings',
                   'IR readings are stale', 'Junction / line stop latched', 'Obstacle blocks the path')
         hints = ('Controller start checks pass.', 'Wait at least five seconds after powering the Pico.',
                  'Wait for Wi-Fi, broker and command subscription.',
@@ -46,7 +47,10 @@ def decode_telemetry(kind, payload):
                     uptime_ms=int.from_bytes(payload[16:20],'little'),
                     telemetry_drops=int.from_bytes(payload[20:24],'little'),
                     last_start_reject=payload[24], last_reject_label=blocks[payload[24]],
-                    last_reject_hint=hints[payload[24]])
+                    last_reject_hint=hints[payload[24]], reset_supported=payload[0]>=2,
+                    reset_pending=bool(payload[4]&128),
+                    timing_gap_us=int.from_bytes(payload[25:29],'little') if payload[0]>=2 else None,
+                    timing_limit_us=int.from_bytes(payload[29:31],'little') if payload[0]>=2 else None)
     if kind == 'vehicle':
         state, faults = bits(0, 3), bits(3, 5)
         if state >= len(STATES): raise ValueError('Unknown vehicle state')

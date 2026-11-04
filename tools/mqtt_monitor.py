@@ -12,11 +12,11 @@ def bits(payload, offset, width):
 def decode(topic, payload):
     kind = topic.rsplit('/', 1)[-1]
     lengths = {'status': 1, 'motion': 9, 'line': 1, 'terrain': 2,
-               'obstacle': 6, 'vehicle': 1, 'ack': 1, 'command': 1, 'controller': 25}
-    if kind not in lengths or len(payload) != lengths[kind]:
+               'obstacle': 6, 'vehicle': 1, 'ack': 1, 'command': 1, 'controller': 31}
+    if kind not in lengths or len(payload) not in ((25,31) if kind=='controller' else (lengths[kind],)):
         return {'error': 'unknown topic or incorrect binary payload length', 'hex': payload.hex()}
     if kind == 'controller':
-        if payload[0] != 1:
+        if (payload[0],len(payload)) not in ((1,25),(2,31)):
             return {'error': 'unknown controller diagnostics version'}
         return dict(state=payload[1], stop_reason=payload[2], start_block=payload[3],
                     ready_flags=payload[4], motor_faults=payload[5],
@@ -27,7 +27,9 @@ def decode(topic, payload):
                     line_age_ms=int.from_bytes(payload[14:16], 'little'),
                     uptime_ms=int.from_bytes(payload[16:20], 'little'),
                     telemetry_drops=int.from_bytes(payload[20:24], 'little'),
-                    last_start_reject=payload[24])
+                    last_start_reject=payload[24],
+                    timing_gap_us=int.from_bytes(payload[25:29],'little') if len(payload)==31 else None,
+                    timing_limit_us=int.from_bytes(payload[29:31],'little') if len(payload)==31 else None)
     if kind == 'motion':
         return dict(mode=bits(payload, 0, 2), speed_level=bits(payload, 2, 3),
                     faults=bits(payload, 5, 4), left_rpm=bits(payload, 9, 9),
@@ -45,7 +47,7 @@ def decode(topic, payload):
         return dict(nearest_mm=bits(payload, 0, 12), width_mm=bits(payload, 12, 11),
                     left_mm=bits(payload, 23, 12), right_mm=bits(payload, 35, 12))
     if kind == 'ack':
-        return {'command': 'START' if payload[0] & 1 else 'STOP',
+        return {'command': 'RESET' if payload[0] & 4 else 'START' if payload[0] & 1 else 'STOP',
                 'accepted_for_processing': not bool(payload[0] & 2)}
     return {'value': payload[0]}
 
@@ -54,7 +56,7 @@ def main():
     parser.add_argument('--host', required=True)
     parser.add_argument('--port', type=int, default=1883)
     parser.add_argument('--root', default='robot/se09-car/v2')
-    parser.add_argument('--command', choices=['start', 'stop'])
+    parser.add_argument('--command', choices=['start', 'stop', 'reset'])
     args = parser.parse_args()
     if any(x in args.root for x in ('#', '+')):
         parser.error('root must not contain MQTT wildcards')
@@ -75,7 +77,7 @@ def main():
         if args.command and not sent and not any(code.is_failure for code in reasons):
             sent = True  # Never replay START automatically after reconnect.
             client.publish(args.root.rstrip('/') + '/command',
-                           bytes([args.command == 'start']), qos=0, retain=False)
+                           bytes([{'stop':0,'start':1,'reset':2}[args.command]]), qos=0, retain=False)
     def on_message(client, userdata, message):
         print(json.dumps({'received_at': time.time(), 'topic': message.topic,
                           'retained': message.retain, **decode(message.topic, message.payload)}), flush=True)

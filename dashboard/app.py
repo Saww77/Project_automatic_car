@@ -141,10 +141,10 @@ class Dashboard:
                     self.heartbeat_time = self.timestamp()
                     self.event("heartbeat", "Live heartbeat " + payload.hex().upper())
             elif message.topic == self.root + "/ack":
-                if len(payload) != 1 or payload[0] > 3 or message.retain:
+                if len(payload) != 1 or payload[0] not in (0,1,2,3,4,6) or message.retain:
                     self.event("error", "Ignored malformed or retained acknowledgment")
                     return
-                self.last_ack = {"command": "start" if payload[0] & 1 else "stop",
+                self.last_ack = {"command": "reset" if payload[0] & 4 else "start" if payload[0] & 1 else "stop",
                                  "rejected": bool(payload[0] & 2), "time": self.timestamp(),
                                  "hex": payload.hex().upper()}
                 label = self.last_ack["command"].upper()
@@ -192,6 +192,13 @@ class Dashboard:
                 "broker_connected": self.broker_connected, "monitor_ready": self.monitor_ready,
                 "error": self.error, "start_allowed": bool(ready),
                 "stop_allowed": self.broker_connected,
+                "reset_allowed": bool(controller_live and fresh and flags & 7 == 7 and
+                                      controller['data']['reset_supported'] and
+                                      controller['data']['motor_faults'] and not controller['data']['reset_pending'] and
+                                      controller['data']['state'] in ('IDLE','FAULT') and
+                                      self.telemetry['motion'] and self.telemetry['motion']['session_valid'] and
+                                      self.clock()-self.telemetry['motion']['received_at']<=TELEMETRY_TIMEOUT and
+                                      self.telemetry['motion']['data']['mode']==0),
                 "pico": {"fresh": fresh, "age": age, "time": self.heartbeat_time,
                          "hex": None if self.last_status is None else f"{flags:02X}",
                          "wifi": bool(flags & 1), "mqtt": bool(flags & 2),
@@ -211,13 +218,15 @@ class Dashboard:
             }
 
     def send(self, command):
-        payload = command_payload(command)  # Only exact START/STOP; never arbitrary topics/payloads.
+        payload = command_payload(command)  # Only exact START/STOP/RESET; never arbitrary topics/payloads.
         with self.lock:
             state = self.snapshot()
             if self.client is None or not state["broker_connected"]:
                 raise CommandUnavailable("Broker is disconnected. No command was queued.")
             if command == "start" and not state["start_allowed"]:
                 raise CommandUnavailable("Wait for a live Pico heartbeat with all connection flags ready.")
+            if command == "reset" and not state["reset_allowed"]:
+                raise CommandUnavailable("Reset requires fresh stopped-motor diagnostics and a latched motor fault.")
             result = self.client.publish(self.root + "/command", payload, qos=0, retain=False)
             if result.rc != 0:
                 raise CommandUnavailable("MQTT did not queue the command; check the broker connection.")
@@ -303,8 +312,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid command size")
             self.connection.settimeout(5)
             data = json.loads(self.rfile.read(length))
-            if not isinstance(data, dict) or set(data) != {"command"} or data["command"] not in ("start", "stop"):
-                raise ValueError("Command must be start or stop")
+            if not isinstance(data, dict) or set(data) != {"command"} or data["command"] not in ("start", "stop", "reset"):
+                raise ValueError("Command must be start, stop or reset")
             result = self.server.dashboard.send(data["command"])
         except CommandUnavailable as exc:
             self.json_response(503, {"error": str(exc)})

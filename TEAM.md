@@ -197,3 +197,7 @@ limit there. The numbers below are the example's usage.
 Vehicle controller task: priority15, physical core0 (TP_PRC1); one priority-inheritance snapshot mutex. Buddy2 remains the motor/PWM/encoder owner on core1. Buddy3 produces latest-value line recommendations; Buddy1 submits START/STOP intents and publishes snapshots. Both no longer issue normal motion commands directly. STOP is a priority latch; startup defaults differ between normal/autostart and MQTT/wait-for-START builds.
 
 Integration interfaces: vehicle_submit_line / vehicle_invalidate_line (Buddy3 → controller), vehicle_request_start / stop (Buddy1 → controller), vehicle_get_snapshot (controller → Buddy1 telemetry), vehicle_submit_terrain / obstacle (future real Buddy4/5 producers → controller). Terrain/obstacle producers are not fabricated or enabled by this integration. See VEHICLE_CONTROLLER.md for schema, tests, timing and limits.
+
+## Motor timing integration revision
+
+The motor task now runs at application priority5 on physical core1. Buddy1 communication (priority13), Wi-Fi and USB stay on physical core0; the vehicle controller remains priority15 on core0. PID service runs before transport/status mutex work. The nominal motor period remains10 ms, with a bounded5 ms scheduling allowance; gaps above15 ms still latch a timing fault. Integral/derivative terms use actual elapsed time. Explicit stopped-only RESET clears faults without starting motion. START is still required after reset.

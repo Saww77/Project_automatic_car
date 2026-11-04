@@ -105,6 +105,18 @@ int main(void) {
  assert(motion_set_wheel_rpm(0,0));
  bool zero=true;assert(s2_take_stop(&zero) && !zero);
  puts("PASS: all 4095 fine-RPM command pairs round-trip through real queue and owner decoder; invalid inputs and zero stop");
+ s2_core_init();assert(s2_core_set_wheel_rpm(30,30));
+ mock_time+=14500; s2_core_service();assert(s2_core_faults()==0);
+ mock_time+=21000;s2_core_service();
+ assert(s2_core_faults()&2u);assert(s2_core_timing_fault_gap_us()==21000);
+ assert(pwm[LEFT_IN_A]==0 && pwm[RIGHT_IN_A]==0);
+ assert(s2_core_clear_faults());assert(!s2_core_busy() && !s2_core_faults());
+ assert(s2_core_timing_fault_gap_us()==0);
+ assert(s2_core_set_wheel_rpm(30,30));tick(3,3);s2_core_stop();
+ for(unsigned i=0;i<40;i++)tick(0,0);
+ S2_STATUS zero_rpm;s2_core_snapshot(&zero_rpm);
+ assert(s2_get_bits(&zero_rpm,9,9)==0 && s2_get_bits(&zero_rpm,18,9)==0);
+ puts("PASS: bounded14.5 ms jitter tolerated, missed21 ms release faults/stops, explicit reset stays idle, filtered RPM decays to true zero");
 }
 '''
 with tempfile.TemporaryDirectory() as temp:

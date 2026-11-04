@@ -50,14 +50,14 @@ Subscriptions use the configured root and these suffixes:
 |---|---:|---|
 | `controller` |25| versioned startup guard, readiness, normalized IR, target RPM, line age and drop count; see VEHICLE_CONTROLLER.md |
 | `status` |1| Wi-Fi1, broker2, command subscription4, TX drop8, RX drop16 |
-| `ack` |1| requested command in bit0; rejected in bit1 |
+| `ack` |1| START in bit0, RESET in bit2 (neither means STOP); rejected in bit1 |
 | `vehicle` |1| state bits0..2, fault mask bits3..7 |
 | `motion` |9| S2_STATUS packed bits: mode0:2, level2:3, faults5:4, L RPM9:9, R RPM18:9, L PWM27:7, R PWM34:7, L progress41:13, R progress54:13 |
 | `line` |1| L/C/R black bits0/1/2, barcode bits3..5 |
 | `terrain` |2| height0:11, phase11:3 |
 | `obstacle` |6| nearest0:12, width12:11, left23:12, right35:12 |
 
-Bit numbering starts at the least significant bit of byte0. Fields use the firmware's little-endian packing. `offset:width` notation is used above. `mqtt_protocol.py` validates lengths, ranges and unused bits before displaying telemetry. START publishes `0x01`, STOP `0x00` to `/command`, QoS0, non-retained. Strings such as `START` are not valid Pico commands.
+Bit numbering starts at the least significant bit of byte0. Fields use the firmware's little-endian packing. `offset:width` notation is used above. `mqtt_protocol.py` validates lengths, ranges and unused bits before displaying telemetry. START publishes `0x01`, STOP `0x00`, and stopped-only RESET `0x02` to `/command`, QoS0, non-retained. Strings such as `START` are not valid Pico commands.
 
 ## Tests
 
@@ -79,3 +79,9 @@ Set `BUDDY1_MOSQUITTO` or `BUDDY1_BROWSER` if executable paths are not discovera
 ## If START is rejected
 
 Replace both the dashboard and Pico firmware with matching current versions. A heartbeat confirms network connectivity, not that the motors and sensors are ready. The Vehicle controller panel reports the actual START blocker. Wait at least five seconds after power-up and start on a straight section, not a crossing. Read the named blocker before resetting faults. If it says diagnostics unavailable, the Pico is running older firmware or the topic root does not match. Send the blocker text and IR/target values for diagnosis; a generic one-byte rejected ACK alone cannot identify the cause.
+
+## Reset a motor fault
+
+With matching timing/reset firmware, a stopped motor fault enables **Reset fault**. Press it once and wait for the ACK and IDLE state, then press START separately. It never resumes automatically. If a timing fault returns, capture the displayed **Gap / limit** numbers before clearing it. A timing gap over the configured limit still stops the car.
+
+The command is binary02; accepted RESET ACK04, rejected RESET ACK06. Existing START/STOP bytes are unchanged. Controller diagnostics version2 has31 bytes and adds reset-pending, latched timing gap and limit; older version1/25-byte diagnostics still display but cannot enable RESET. Raw ADC values and total distance remain unreported.

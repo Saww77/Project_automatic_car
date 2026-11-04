@@ -74,6 +74,8 @@ void s1_comm_task(INT stacd, void *exinf)
                 vehicle_request_stop();
                 stop_seen = 1;
                 ack = S1_CMD_STOP;
+            } else if(op==S1_CMD_RESET){
+                ack=(unsigned char)(4u|((stop_seen||!vehicle_request_reset())?2u:0u));
             } else {
                 /* STOP takes priority over any START in the same drained batch. */
                 ack = (unsigned char)(S1_CMD_START |

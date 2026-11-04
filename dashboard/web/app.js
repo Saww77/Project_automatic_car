@@ -2,6 +2,7 @@
 const el = (id) => document.getElementById(id);
 let state = null;
 let commandBusy = false;
+let resetBusy = false;
 let commandQueue = Promise.resolve();
 let polling = false;
 let lastAckTime = "";
@@ -19,6 +20,7 @@ function draw(data) {
   el("live-monitor").classList.toggle("online", data.broker_connected);
   el("start").disabled = !data.start_allowed || commandBusy;
   el("stop").disabled = !data.stop_allowed;
+  el("reset").disabled = !data.reset_allowed || resetBusy;
   el("ready-dot").classList.toggle("online", data.start_allowed);
   let title = "Waiting for the Pico";
   let description = "Waiting for a live heartbeat. Stored broker messages do not confirm the Pico is online.";
@@ -72,7 +74,7 @@ async function refresh() {
   } catch (error) {
     state = null;
     drawTelemetry(null);
-    el("start").disabled = el("stop").disabled = true;
+    el("start").disabled = el("stop").disabled = el("reset").disabled = true;
     el("live-monitor").classList.remove("online");
     el("ready-dot").classList.remove("online");
     for (const id of ["wifi", "mqtt", "subscribed"]) setFlag(id, false, false);
@@ -87,7 +89,8 @@ async function refresh() {
   }
 }
 function send(command) {
-  if (!state || (command === "start" && commandBusy)) return;
+  if (!state || (command === "start" && commandBusy) || (command === "reset" && resetBusy)) return;
+  if (command === "reset") { resetBusy = true; el("reset").disabled = true; }
   if (command === "start") { commandBusy = true; el("start").disabled = true; }
   // Preserve operator click order, including STOP clicked while START is posting.
   commandQueue = commandQueue.then(() => performSend(command));
@@ -111,11 +114,13 @@ async function performSend(command) {
   } finally {
     commandPosting = false;
     if (command === "start") commandBusy = false;
+    if (command === "reset") resetBusy = false;
     await refresh();
   }
 }
 el("start").addEventListener("click", () => send("start"));
 el("stop").addEventListener("click", () => send("stop"));
+el("reset").addEventListener("click", () => send("reset"));
 refresh();
 setInterval(refresh, 1000);
 
@@ -160,6 +165,9 @@ function drawTelemetry(data) {
   text("mission-description", vehicle ? topics.vehicle.fresh ? descriptions[vehicle.state] : "Last report only. Waiting for live mission telemetry." : "Waiting for a mission-state report.");
   faultList("vehicle-faults", vehicle?.fault_labels ?? [], Boolean(vehicle));
   faultList("motor-faults", motion?.fault_labels ?? [], Boolean(motion));
+  if (motion?.faults & 2 && controller?.timing_gap_us != null) {
+    el("motor-faults").textContent += ` · Gap ${(controller.timing_gap_us/1000).toFixed(2)} ms / limit ${(controller.timing_limit_us/1000).toFixed(2)} ms`;
+  }
   for (const side of ["left", "right"]) {
     text(side + "-rpm", motion?.[side + "_rpm"]);
     text(side + "-pwm", motion ? motion[side + "_pwm"] + "%" : null);

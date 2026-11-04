@@ -23,6 +23,7 @@ static struct {
    bounded movement target/progress 0..8191 (13). */
 static struct wheel_data {
     unsigned rpm:9;
+    unsigned rpm_filter_q4:13; /* fractional filtering decays to zero without sticky2 RPM */
     signed integral:12;
     signed previous_error:10;
     unsigned duty:7;
@@ -85,7 +86,7 @@ void s2_core_init(void)
 {
     state=(__typeof__(state)){0};
     for(unsigned i=0;i<2;i++)wheels[i]=(struct wheel_data){0};
-    timing_fault_gap_us=0;
+    __atomic_store_n(&timing_fault_gap_us,0,__ATOMIC_RELAXED);
     state.level=1; /* 25% default target speed. */
     s2_hw_pwm_init();
     s2_core_stop();
@@ -179,14 +180,14 @@ unsigned s2_core_faults(void) { return state.faults; }
 bool s2_core_clear_faults(void)
 {
     if(s2_core_busy()) return false;
-    drain_encoder(); state.faults=0; timing_fault_gap_us=0; last_tick=s2_hw_time_us();
+    drain_encoder(); state.faults=0; __atomic_store_n(&timing_fault_gap_us,0,__ATOMIC_RELAXED); last_tick=s2_hw_time_us();
     return true;
 }
-static unsigned pid(unsigned w,unsigned target)
+static unsigned pid(unsigned w,unsigned target,unsigned elapsed_us)
 {
     int error=(int)target-(int)wheels[w].rpm;
-    int derivative=error-wheels[w].previous_error;
-    int integral=clamp(wheels[w].integral+error,-INTEGRAL_LIMIT,INTEGRAL_LIMIT);
+    int derivative=(error-wheels[w].previous_error)*(int)(S2_PERIOD_MS*1000u)/(int)elapsed_us;
+    int integral=clamp(wheels[w].integral+error*(int)elapsed_us/(int)(S2_PERIOD_MS*1000u),-INTEGRAL_LIMIT,INTEGRAL_LIMIT);
     int base=(int)(target*100u/MAX_RPM);
     int ki_den=target<60u?KI_LOW_SPEED_DEN:KI_DEN;
     int output=base+error*KP_NUM/KP_DEN+integral/ki_den+derivative*KD_NUM/KD_DEN;
@@ -205,7 +206,7 @@ void s2_core_service(void)
     bool moving=s2_core_busy();
     if(moving && (sample & (3u<<10))) { fail(FAULT_COUNTS); return; }
     if(moving && elapsed>MAX_CONTROL_GAP_US) {
-        timing_fault_gap_us=elapsed>0xffffffffu?0xffffffffu:(uint32_t)elapsed;
+        __atomic_store_n(&timing_fault_gap_us,elapsed>0xffffffffu?0xffffffffu:(uint32_t)elapsed,__ATOMIC_RELAXED);
         fail(FAULT_TIMING); return;
     }
     if(moving && state.mode!=VELOCITY && now-command_start>MOVE_TIMEOUT_US) { fail(FAULT_TIMEOUT); return; }
@@ -213,7 +214,8 @@ void s2_core_service(void)
         unsigned n=(sample>>(w?5:0))&31u;
         unsigned rpm=(unsigned)((uint64_t)n*600000000u/(cpr(w)*elapsed));
         if(rpm>300 && moving) { fail(FAULT_COUNTS); return; }
-        wheels[w].rpm=(3u*wheels[w].rpm+(rpm>300?300:rpm)+2u)/4u;
+        wheels[w].rpm_filter_q4=(3u*wheels[w].rpm_filter_q4+(rpm>300?300:rpm)*16u)/4u;
+        wheels[w].rpm=(wheels[w].rpm_filter_q4+8u)/16u;
         if(!moving) continue;
         if(state.mode==DISTANCE || state.mode==TURN) {
             unsigned p=wheels[w].progress+n;
@@ -225,7 +227,7 @@ void s2_core_service(void)
         if(!target) { drive(w,0); wheels[w].integral=0; stall_start[w]=0; continue; }
         /* Reduce speed near a distance/turn target; coast overshoot still needs calibration. */
         if(state.mode!=VELOCITY && wheels[w].target-wheels[w].progress<80 && target>60) target=60;
-        unsigned duty=pid(w,target);
+        unsigned duty=pid(w,target,(unsigned)elapsed);
         if(n || duty<20) stall_start[w]=now;
         if(!stall_start[w]) stall_start[w]=now;
         if(now-stall_start[w]>STALL_US) { fail(FAULT_STALL); return; }
@@ -247,4 +249,4 @@ void s2_core_snapshot(S2_STATUS *out)
 
 void s2_core_timeout(void) { fail(FAULT_TIMEOUT); }
 
-uint32_t s2_core_timing_fault_gap_us(void) { return timing_fault_gap_us; }
+uint32_t s2_core_timing_fault_gap_us(void) { return __atomic_load_n(&timing_fault_gap_us,__ATOMIC_RELAXED); }

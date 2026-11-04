@@ -83,6 +83,22 @@ class TelemetryTests(unittest.TestCase):
         packet[0]=2
         with self.assertRaises(ValueError):decode_telemetry('controller',packet)
 
+    def test_timing_diagnostics_and_stopped_reset(self):
+        packet=bytearray(31);packet[0]=2;packet[1]=5;packet[3]=3;packet[4]=1|2|64;packet[5]=2
+        packet[25:29]=(12000).to_bytes(4,'little');packet[29:31]=(15000).to_bytes(2,'little')
+        motor=bytearray(motion_packet(2));motor[0]&=~3
+        self.send('status',b'\x07');self.send('motion',motor);self.send('controller',packet)
+        state=self.d.snapshot()
+        self.assertTrue(state['reset_allowed']);self.assertFalse(state['start_allowed'])
+        self.assertEqual(state['telemetry']['controller']['data']['timing_gap_us'],12000)
+        self.assertEqual(state['telemetry']['controller']['data']['timing_limit_us'],15000)
+        packet[4]|=128;self.send('controller',packet)
+        self.assertFalse(self.d.snapshot()['reset_allowed'])
+        packet[0]=1
+        with self.assertRaises(ValueError):decode_telemetry('controller',packet)
+        self.send('ack',b'\x04');self.assertEqual(self.d.snapshot()['last_ack']['command'],'reset')
+        self.send('ack',b'\x06');self.assertTrue(self.d.snapshot()['last_ack']['rejected'])
+
     def test_subscribes_every_topic(self):
         result=[]
         client=SimpleNamespace(subscribe=lambda topics:(result.extend(topics) or (0,1)))

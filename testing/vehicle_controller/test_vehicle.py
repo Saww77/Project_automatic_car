@@ -47,6 +47,8 @@ static ID app_start_task(FP entry,int pri,UW core,const char *name)
 '''
 headers=''.join(strip(read(x)) for x in (
 'app_program/subsystem2/subsystem2.h',
+'app_program/subsystem2/motion_core.h',
+'app_program/subsystem2/motion_config.h',
 'app_program/vehicle_controller/vehicle_core.h',
 'app_program/vehicle_controller/vehicle_controller.h',
 'app_program/subsystem1/s1_wire.h',
@@ -57,6 +59,10 @@ static bool motor_ready=true;
 static S2_STATUS motor_status;
 static unsigned links=7,commands,stops,last_left,last_right;
 static bool queue_ok=true,fail_tx;
+static unsigned clear_requests;
+static uint32_t timing_gap=12000;
+uint32_t s2_core_timing_fault_gap_us(void){return timing_gap;}
+bool motion_clear_faults(void){clear_requests++;s2_put_bits(&motor_status,5,4,0);timing_gap=0;return true;}
 static unsigned char rx_ops[8];static unsigned rx_count,rx_index;
 int mqtt_bridge_receive(unsigned char frame[MQTT_BRIDGE_FRAME_MAX]){
  if(rx_index==rx_count)return E_TMOUT;
@@ -137,7 +143,7 @@ int main(void){
  s2_put_bits(&motor_status,9,9,30);s2_put_bits(&motor_status,18,9,24);
  s1_publish_telemetry();
  assert(sent[MQTT_ROUTE_VEHICLE]==1 && sent[MQTT_ROUTE_MOTION]==1 && sent[MQTT_ROUTE_LINE]==1);
- assert(payload_size[MQTT_ROUTE_CONTROLLER]==25 && payload[MQTT_ROUTE_CONTROLLER][0]==1);
+ assert(payload_size[MQTT_ROUTE_CONTROLLER]==31 && payload[MQTT_ROUTE_CONTROLLER][0]==2);
  assert(payload_size[MQTT_ROUTE_MOTION]==9 && payload_size[MQTT_ROUTE_LINE]==1);
  assert(payload[MQTT_ROUTE_LINE][0]==4);
  S2_STATUS received;memcpy(received.bytes,payload[MQTT_ROUTE_MOTION],9);
@@ -151,7 +157,7 @@ int main(void){
  s1_publish_telemetry();assert(sent[MQTT_ROUTE_TERRAIN]==terrain_count && sent[MQTT_ROUTE_LINE]==line_count);
  unsigned dropped=data.telemetry_drops;fail_tx=true;line();s1_publish_telemetry();assert(data.telemetry_drops==dropped+4);
  fail_tx=false;links=0;before=sent[MQTT_ROUTE_VEHICLE];s1_publish_telemetry();assert(sent[MQTT_ROUTE_VEHICLE]==before);
- unsigned op=99;unsigned char start=1,stop=0,bad=2;
+ unsigned op=99;unsigned char start=1,stop=0,bad=3;
  assert(s1_command_decode(&start,1,&op)&&op==1);assert(s1_command_decode(&stop,1,&op)&&op==0);
  assert(!s1_command_decode(&bad,1,&op));assert(!s1_command_decode(&start,2,&op));
  puts("PASS: vehicle/motion/line binary telemetry, real-only terrain/obstacle, freshness, backpressure count, disconnected suppression, strict binary commands");
@@ -168,6 +174,19 @@ int main(void){
  assert(start_pending && payload[MQTT_ROUTE_ACK][0]==1 && commands==before);
  vehicle_service_once();assert(model.running);
  puts("PASS: actual MQTT command task queues intent only, START/STOP/START prioritises STOP, ACK marks acceptance/rejection");
+ assert(!vehicle_request_reset()); /* moving */
+ vehicle_request_stop();vehicle_service_once();
+ s2_put_bits(&motor_status,5,4,2);vehicle_service_once();
+ assert(vehicle_get_snapshot(&diag) && diag.timing_fault_gap_us==12000 && diag.control_gap_limit_us==15000);
+ before=commands;rx_index=0;rx_count=1;rx_ops[0]=2;exit_command_loop=true;
+ if(setjmp(command_return)==0)s1_comm_task(0,0);
+ exit_command_loop=false;
+ assert(reset_pending && payload[MQTT_ROUTE_ACK][0]==4);
+ vehicle_service_once();vehicle_service_once();
+ assert(clear_requests==1 && !model.running && model.state==VC_IDLE && commands==before && !reset_pending);
+ assert(!vehicle_request_reset()); /* no fault */
+ line();assert(vehicle_request_start());vehicle_service_once();assert(model.running);
+ puts("PASS: stopped-only RESET routes through controller, clears fault without motion, requires a separate START; timing gap/limit diagnostics");
 }
 '''
 with tempfile.TemporaryDirectory() as temp:

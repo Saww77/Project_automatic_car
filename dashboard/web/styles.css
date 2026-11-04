@@ -134,3 +134,5 @@ progress { width:100%; height:7px; margin-top:8px; accent-color:var(--teal); }
 
 .controller-checks {margin-top:18px;border-top:1px solid var(--border);padding-top:18px;font-size:12px;}
 .controller-checks p {color:var(--muted);font-size:11px;}
+
+.reset-control{margin-top:14px;padding:9px 16px;border:1px solid #987449;border-radius:7px;background:#3b3022;color:#f0c489;cursor:pointer}.reset-control:disabled{opacity:.35;cursor:not-allowed}
