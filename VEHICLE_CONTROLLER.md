@@ -8,7 +8,7 @@ The current states that actually execute are IDLE(0), FOLLOW_LINE(1), and FAULT(
 
 Controller task: priority 15, core 0 (TP_PRC1), nominal 10 ms sleep, approximately 20 ms with this kernel's guard tick. Motor owner remains priority 14 on core 1. A priority-inheritance mutex protects copied input/state snapshots. START is a pending intent; STOP is a priority latch that cancels START. No backlog of old steering samples is kept. All subsystem objects and the controller mutex are created before application tasks start.
 
-The line task now requests a direct 10 ms cyclic release. Previously it requested 1 ms, discarded coalesced wakeups, then counted ten releases, despite CNF_TIMER_PERIOD=10 ms. It now reads once per release; missed deadlines are not treated as ten successful samples. This corrects intended sampling cadence without changing the steering decision function.
+The line task now requests a direct 10 ms cyclic release. Junction detection is armed only while FOLLOW_LINE is running, so idle/startup samples cannot latch a junction stop before START. Previously it requested 1 ms, discarded coalesced wakeups, then counted ten releases, despite CNF_TIMER_PERIOD=10 ms. It now reads once per release; missed deadlines are not treated as ten successful samples. This corrects intended sampling cadence without changing the steering decision function.
 
 While following, line recommendations older than 150 ms, invalid ADC reads, motor faults, or loss of MQTT connectivity stop the mission. Fault recovery or reconnection never automatically resumes it. START requires fresh valid line input, motor readiness and no pending STOP/interlock. Wheel targets renew every 100 ms or when changed, preserving the motor watchdog. Enqueue failures retry; motor faults remain latched.
 
@@ -57,7 +57,7 @@ Vehicle S1 fault bits: motor1, encoder2, IMU4, no-echo8, Wi-Fi16. Raw S2 motor f
 
 Line telemetry is omitted if invalid or older than 150 ms. Terrain and obstacle topics are omitted until real producers submit valid samples, and omitted again after 1000 ms without an update. These topics are currently hooks, not invented sensor drivers. A blocked-obstacle safety interlock remains blocked until its producer explicitly clears it; clearing does not restart motion.
 
-`vehicle_get_snapshot()` also exposes timestamp, stop/fault reason, freshness flags and telemetry drop count locally. These additional fields are not silently appended to the existing binary-v2 MQTT schema. The monitor timestamps receipt; it does not infer sender-time freshness from the compact payload.
+`vehicle_get_snapshot()` also exposes timestamp, stop/fault reason, freshness flags and telemetry drop count locally. These fields are available on the additive `/controller` diagnostics topic; the existing binary-v2 topics and one-byte ACK stay compatible. The monitor timestamps receipt; it does not infer sender-time freshness from the compact payload.
 
 ## Buddy 4 / Buddy 5 integration
 
@@ -109,3 +109,13 @@ python3 testing/subsystem2/test_motion_core_host.py
 Host tests compile actual controller, runtime/command routing, telemetry and wire-format code against mocked RTOS/motors/MQTT transport. They cover latest-value steering, STOP priority, START/STOP/START batches, link/fault/stale stops, no automatic resume, obstacle interlocks, clock wrap, queue retry, non-MQTT autostart, packed motion/line/terrain/obstacle payloads, missing/stale data suppression, drop accounting and monitor decoding. Existing motor and line regression tests pass.
 
 Both normal and MQTT-enabled firmware profiles build and link with the pinned SDK dependencies. No live Pico, Wi-Fi association or physical broker delivery was available here; those are unverified. On hardware, subscribe first, check heartbeat/telemetry, START with wheels raised, verify asymmetric curve recommendations survive, STOP, disconnect Wi-Fi and confirm stopping/no automatic restart after reconnection. Full-track navigation and physical curve performance are separate unverified outcomes.
+
+## START-rejection diagnostics update
+
+The old dashboard only displayed `START rejected`; it did not report the controller guard. The new matching dashboard and firmware add `/controller`, a25-byte binary payload with version1. Offsets: version0, mission state1, stop reason2, current START blocker3, readiness flags4, motor faults5, left/centre/right darkness6/8/10 (uint16 LE), target RPM12/13, line age14 (uint16 LE;65535 unavailable), uptime16 (uint32 LE), local telemetry drops20 (uint32 LE), last START rejection24.
+
+Blockers:0 ready,1 motor startup,2 network/subscription,3 motor fault,4 STOP pending,5 invalid/missing ADC,6 stale ADC,7 line/junction stop,8 obstacle interlock. Readiness flag bits:0 motor ready,1 valid line,2 line stop,3 obstacle blocked,4 START pending,5 STOP pending,6 network ready. This topic is additive; original topic layouts and ACK bytes are unchanged. Internal MQTT bridge route IDs now need4 bits for9 routes.
+
+A concrete startup bug was corrected: the existing junction test could latch during the five-second motor startup or IDLE and block the first START. Its timer now runs only during FOLLOW_LINE. Once a real running junction stop occurs, the original test remains latched until restart. Do not bypass motor faults or invalid/stale line guards.
+
+The dashboard shows a specific START blocker, normalized IR darkness, target RPM, line age and local drop count. It disables START on a fresh nonzero blocker and keeps STOP available. If using older firmware without diagnostics, it reports diagnostics unavailable rather than inventing a reason. The screenshot displaying `Request forward` and the Buddy2 direct-motion note identifies the older dashboard.

@@ -21,6 +21,12 @@ typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
 '''
 tests = '''
 int main(void) {
+ INT junction_ms=0;
+ for(int i=0;i<500;i++) assert(!line_junction_update(1000,1000,FALSE,&junction_ms));
+ assert(junction_ms==0);
+ for(int i=0;i<JUNCTION_MIN_MS/LINE_PERIOD_MS-1;i++) assert(!line_junction_update(1000,1000,TRUE,&junction_ms));
+ assert(line_junction_update(1000,1000,TRUE,&junction_ms));
+ assert(!line_junction_update(1000,0,TRUE,&junction_ms) && junction_ms==0);
  LF_STATE s={0,0}; LF_CMD c;
  line_decide(0,1000,0,&s,&c);
  assert(!c.stop && c.left==30 && c.right==30);

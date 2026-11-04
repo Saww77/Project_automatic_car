@@ -182,6 +182,11 @@ class Dashboard:
             fresh = age is not None and age <= HEARTBEAT_TIMEOUT
             flags = self.last_status or 0
             ready = self.broker_connected and self.monitor_ready and fresh and flags & 7 == 7
+            controller = self.telemetry.get('controller')
+            controller_live = bool(controller and controller['session_valid'] and self.broker_connected and
+                                   self.clock()-controller['received_at']<=TELEMETRY_TIMEOUT)
+            if controller_live and controller['data']['start_block']:
+                ready = False
             return {
                 "broker": self.broker, "broker_port": self.broker_port, "root": self.root,
                 "broker_connected": self.broker_connected, "monitor_ready": self.monitor_ready,

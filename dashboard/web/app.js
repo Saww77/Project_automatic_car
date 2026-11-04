@@ -27,6 +27,9 @@ function draw(data) {
     description = "Check the broker address, listener and firewall. The dashboard retries automatically.";
   } else if (!data.monitor_ready) {
     description = "Waiting for the dashboard’s MQTT subscriptions.";
+  } else if (data.telemetry?.controller?.fresh && data.telemetry.controller.data.start_block) {
+    title = "START blocked by controller";
+    description = data.telemetry.controller.data.start_block_label;
   } else if (data.start_allowed) {
     title = "Pico ready for commands";
     description = "The live heartbeat confirms Wi-Fi, MQTT and the command subscription.";
@@ -52,6 +55,11 @@ function draw(data) {
     lastAckTime = ack.time;
     el("command-feedback").className = "command-feedback" + (ack.rejected ? " error" : "");
     el("command-feedback").textContent = `Pico ACK: ${ack.command.toUpperCase()} ${ack.rejected ? "rejected" : "accepted for processing"}.`;
+  }
+  if (data.last_ack?.rejected && !commandPosting && el("command-feedback").textContent.startsWith("Pico ACK:")) {
+    const diagnostics = data.telemetry?.controller;
+    const reason = data.last_ack.command === "start" && diagnostics?.fresh && diagnostics.data.last_start_reject ? `${diagnostics.data.last_reject_label}. ${diagnostics.data.last_reject_hint}` : "Reason unavailable: update the Pico firmware and inspect controller diagnostics.";
+    el("command-feedback").textContent = `Pico ACK: ${data.last_ack.command.toUpperCase()} rejected — ${reason}`;
   }
 }
 async function refresh() {
@@ -129,6 +137,13 @@ function drawTelemetry(data) {
     badge.className = "sample-status" + (fresh ? " fresh" : sample?.data ? " stale" : "");
     badge.textContent = !sample?.data ? "No data" : fresh ? "Live" : `Stale · ${Math.floor(sample.age)}s`;
   }
+  const diagnostic = topics.controller;
+  const controller = diagnostic?.data;
+  text("start-blocker", controller ? diagnostic.fresh ? controller.start_block_label : "Controller diagnostics stale" : "Controller diagnostics unavailable");
+  text("start-hint", controller && diagnostic.fresh ? controller.start_hint : "Use the matching Pico diagnostics firmware and dashboard to report the START blocker.");
+  text("ir-age", controller ? controller.line_age_ms === null ? "No valid sample" : controller.line_age_ms + " ms" : null);
+  text("line-stop", controller ? controller.line_stop ? "Latched" : "No" : null);
+  text("controller-detail", controller ? `IR darkness L/C/R: ${controller.left_dark} / ${controller.centre_dark} / ${controller.right_dark}. Target RPM L/R: ${controller.left_target_rpm} / ${controller.right_target_rpm}. Telemetry drops: ${controller.telemetry_drops}.` : "Waiting for live controller diagnostics.");
   const vehicle = topics.vehicle?.data;
   const motion = topics.motion?.data;
   const line = topics.line?.data;

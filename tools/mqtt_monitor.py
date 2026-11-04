@@ -12,9 +12,22 @@ def bits(payload, offset, width):
 def decode(topic, payload):
     kind = topic.rsplit('/', 1)[-1]
     lengths = {'status': 1, 'motion': 9, 'line': 1, 'terrain': 2,
-               'obstacle': 6, 'vehicle': 1, 'ack': 1, 'command': 1}
+               'obstacle': 6, 'vehicle': 1, 'ack': 1, 'command': 1, 'controller': 25}
     if kind not in lengths or len(payload) != lengths[kind]:
         return {'error': 'unknown topic or incorrect binary payload length', 'hex': payload.hex()}
+    if kind == 'controller':
+        if payload[0] != 1:
+            return {'error': 'unknown controller diagnostics version'}
+        return dict(state=payload[1], stop_reason=payload[2], start_block=payload[3],
+                    ready_flags=payload[4], motor_faults=payload[5],
+                    left_dark=int.from_bytes(payload[6:8], 'little'),
+                    centre_dark=int.from_bytes(payload[8:10], 'little'),
+                    right_dark=int.from_bytes(payload[10:12], 'little'),
+                    left_target_rpm=payload[12], right_target_rpm=payload[13],
+                    line_age_ms=int.from_bytes(payload[14:16], 'little'),
+                    uptime_ms=int.from_bytes(payload[16:20], 'little'),
+                    telemetry_drops=int.from_bytes(payload[20:24], 'little'),
+                    last_start_reject=payload[24])
     if kind == 'motion':
         return dict(mode=bits(payload, 0, 2), speed_level=bits(payload, 2, 3),
                     faults=bits(payload, 5, 4), left_rpm=bits(payload, 9, 9),

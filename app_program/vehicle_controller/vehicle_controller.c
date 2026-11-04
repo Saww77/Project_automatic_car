@@ -41,9 +41,21 @@ void vehicle_invalidate_line(void)
 { if(lock()){data.line_valid=FALSE;unlock();} }
 void vehicle_request_stop(void)
 { if(lock()){stop_pending=TRUE;start_pending=FALSE;auto_pending=FALSE;unlock();} }
+static VC_START_BLOCK start_block(BOOL ready,BOOL linked,unsigned faults,uint32_t now)
+{
+    if(faults)return VC_START_MOTOR;
+    if(!linked)return VC_START_LINK;
+    if(!ready)return VC_START_STARTUP;
+    if(!data.line_valid)return VC_START_NO_LINE;
+    if(now-data.line_timestamp_ms>VC_LINE_MAX_AGE_MS)return VC_START_OLD_LINE;
+    if(data.line_stop)return VC_START_LINE_STOP;
+    if(data.obstacle_blocked)return VC_START_OBSTACLE;
+    if(stop_pending)return VC_START_STOP_PENDING;
+    return VC_START_READY;
+}
 BOOL vehicle_request_start(void)
 {
-    S2_STATUS s;
+    S2_STATUS s={{0}};
     BOOL ready=motion_get_status(&s);
     BOOL linked=TRUE;
 #if TM_MQTT
@@ -51,10 +63,13 @@ BOOL vehicle_request_start(void)
 #endif
     if(!lock())return FALSE;
     uint32_t now=now_ms();
-    BOOL ok=ready && linked && !s2_get_bits(&s,5,4) && !stop_pending && data.line_valid &&
-            (uint32_t)(now-data.line_timestamp_ms)<=VC_LINE_MAX_AGE_MS && !data.line_stop && !data.obstacle_blocked;
+    VC_START_BLOCK block=start_block(ready,linked,s2_get_bits(&s,5,4),now);
+    data.last_start_reject=block;
+    BOOL ok=block==VC_START_READY;
     if(ok){start_pending=TRUE;auto_pending=FALSE;}
-    unlock();return ok;
+    unlock();
+    if(!ok)tm_printf((UB*)"[VEHICLE] START rejected: blocker=%u (1=startup 2=link 3=motor 4=stop 5=no-ADC 6=stale-ADC 7=junction 8=obstacle)\n",(unsigned)block);
+    return ok;
 }
 BOOL vehicle_submit_terrain(unsigned height,unsigned phase)
 {
@@ -73,7 +88,21 @@ BOOL vehicle_submit_obstacle(unsigned near,unsigned width,unsigned left,unsigned
     unlock();return TRUE;
 }
 BOOL vehicle_get_snapshot(VEHICLE_SNAPSHOT *out)
-{ if(!out||!lock())return FALSE;*out=data;out->timestamp_ms=now_ms();unlock();return TRUE; }
+{
+    if(!out)return FALSE;
+    S2_STATUS motor={{0}};BOOL ready=motion_get_status(&motor),linked=TRUE;
+#if TM_MQTT
+    linked=(s1_connection_status()&7u)==7u;
+#endif
+    if(!lock())return FALSE;
+    *out=data;out->timestamp_ms=now_ms();out->motor_ready=ready;out->link_ready=linked;
+    out->start_pending=start_pending;out->stop_pending=stop_pending;
+    out->motor_faults=s2_get_bits(&motor,5,4);
+    out->start_block=start_block(ready,linked,out->motor_faults,out->timestamp_ms);
+    unlock();return TRUE;
+}
+BOOL vehicle_is_following(void)
+{ if(!lock())return FALSE;BOOL following=model.running && model.state==VC_FOLLOW_LINE;unlock();return following; }
 void vehicle_record_telemetry_drop(void)
 { if(lock()){if(data.telemetry_drops!=0xffffffffu)data.telemetry_drops++;unlock();} }
 static BOOL moving;

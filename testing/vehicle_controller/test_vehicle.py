@@ -17,6 +17,8 @@ prelude=r'''
 #define VC_AUTO_START 0
 #define EXPORT
 #define IMPORT extern
+typedef unsigned char UB;
+static int tm_printf(UB *format,...){(void)format;return 0;}
 typedef int ER;typedef int INT;typedef int BOOL;typedef int ID;typedef unsigned UW;
 typedef void (*FP)(void);
 typedef struct { unsigned mtxatr; } T_CMTX;
@@ -93,7 +95,15 @@ tests=r'''
 static void line(void){vehicle_submit_line(100,0,900,24,0,FALSE,0);}
 static void arm(void){line();assert(vehicle_request_start());vehicle_service_once();assert(model.running);}
 int main(void){
- assert(vehicle_init()==0);line();vehicle_service_once();assert(commands==0);
+ assert(vehicle_init()==0);
+ VEHICLE_SNAPSHOT diag;
+ assert(vehicle_get_snapshot(&diag) && diag.start_block==VC_START_NO_LINE);
+ motor_ready=false;assert(vehicle_get_snapshot(&diag) && diag.start_block==VC_START_STARTUP);
+ motor_ready=true;s2_put_bits(&motor_status,5,4,4);
+ assert(vehicle_get_snapshot(&diag) && diag.start_block==VC_START_MOTOR);
+ s2_put_bits(&motor_status,5,4,0);
+ line();clock_ms+=151;assert(vehicle_get_snapshot(&diag) && diag.start_block==VC_START_OLD_LINE);
+ line();vehicle_service_once();assert(commands==0);
  arm();assert(last_left==24 && last_right==0);
  vehicle_submit_line(800,0,100,0,24,FALSE,0);
  vehicle_submit_line(100,0,800,24,12,FALSE,0);
@@ -127,6 +137,7 @@ int main(void){
  s2_put_bits(&motor_status,9,9,30);s2_put_bits(&motor_status,18,9,24);
  s1_publish_telemetry();
  assert(sent[MQTT_ROUTE_VEHICLE]==1 && sent[MQTT_ROUTE_MOTION]==1 && sent[MQTT_ROUTE_LINE]==1);
+ assert(payload_size[MQTT_ROUTE_CONTROLLER]==25 && payload[MQTT_ROUTE_CONTROLLER][0]==1);
  assert(payload_size[MQTT_ROUTE_MOTION]==9 && payload_size[MQTT_ROUTE_LINE]==1);
  assert(payload[MQTT_ROUTE_LINE][0]==4);
  S2_STATUS received;memcpy(received.bytes,payload[MQTT_ROUTE_MOTION],9);
@@ -138,7 +149,7 @@ int main(void){
  assert(payload_size[MQTT_ROUTE_OBSTACLE]==6 && s1_wire_get(payload[MQTT_ROUTE_OBSTACLE],0,12)==500);
  clock_ms+=1001;unsigned terrain_count=sent[MQTT_ROUTE_TERRAIN],line_count=sent[MQTT_ROUTE_LINE];
  s1_publish_telemetry();assert(sent[MQTT_ROUTE_TERRAIN]==terrain_count && sent[MQTT_ROUTE_LINE]==line_count);
- unsigned dropped=data.telemetry_drops;fail_tx=true;line();s1_publish_telemetry();assert(data.telemetry_drops==dropped+3);
+ unsigned dropped=data.telemetry_drops;fail_tx=true;line();s1_publish_telemetry();assert(data.telemetry_drops==dropped+4);
  fail_tx=false;links=0;before=sent[MQTT_ROUTE_VEHICLE];s1_publish_telemetry();assert(sent[MQTT_ROUTE_VEHICLE]==before);
  unsigned op=99;unsigned char start=1,stop=0,bad=2;
  assert(s1_command_decode(&start,1,&op)&&op==1);assert(s1_command_decode(&stop,1,&op)&&op==0);

@@ -3,7 +3,7 @@ STATES = ('IDLE', 'FOLLOW_LINE', 'TURNING', 'AVOIDING', 'RECOVER_LINE', 'FAULT')
 MOTOR_MODES = ('IDLE', 'VELOCITY', 'DISTANCE', 'TURN')
 MOTOR_FAULTS = ((1, 'Encoder counts'), (2, 'Control timing'), (4, 'Wheel stalled'), (8, 'Command timeout'))
 VEHICLE_FAULTS = ((1, 'Motor'), (2, 'Encoder'), (4, 'IMU'), (8, 'Ultrasonic echo'), (16, 'Wi-Fi'))
-TELEMETRY_TOPICS = ('vehicle', 'motion', 'line', 'terrain', 'obstacle')
+TELEMETRY_TOPICS = ('vehicle', 'motion', 'line', 'terrain', 'obstacle', 'controller')
 
 def command_payload(command):
     if command == 'start': return b'\x01'
@@ -11,11 +11,42 @@ def command_payload(command):
     raise ValueError('command must be start or stop')
 
 def decode_telemetry(kind, payload):
-    sizes = dict(vehicle=1, motion=9, line=1, terrain=2, obstacle=6)
+    sizes = dict(vehicle=1, motion=9, line=1, terrain=2, obstacle=6, controller=25)
     if kind not in sizes or len(payload) != sizes[kind]:
         raise ValueError('Incorrect binary telemetry length')
     word = int.from_bytes(payload, 'little')
     def bits(offset, width): return (word >> offset) & ((1 << width) - 1)
+    if kind == 'controller':
+        if payload[0] != 1 or payload[1] >= len(STATES) or payload[2] > 6 or payload[3] > 8 or payload[24] > 8 or payload[4] & 128 or payload[5] > 15:
+            raise ValueError('Invalid controller diagnostics')
+        raw = [int.from_bytes(payload[i:i+2], 'little') for i in (6,8,10)]
+        if max(raw)>1000 or max(payload[12:14])>126 or any(x%2 for x in payload[12:14]):
+            raise ValueError('Invalid controller sensor or target range')
+        blocks = ('Ready for START', 'Motor startup not ready', 'Wi-Fi/MQTT not ready',
+                  'Motor fault latched', 'STOP pending', 'No valid IR readings',
+                  'IR readings are stale', 'Junction / line stop latched', 'Obstacle blocks the path')
+        hints = ('Controller start checks pass.', 'Wait at least five seconds after powering the Pico.',
+                 'Wait for Wi-Fi, broker and command subscription.',
+                 'Inspect motor faults before resetting or restarting.',
+                 'Allow the controller to process STOP before retrying.',
+                 'Check the IR sensor AO connections and ADC read errors on USB serial.',
+                 'The sensor task is not supplying fresh data; inspect USB serial.',
+                 'Place the car on a straight away from crossings, then restart the Pico. The junction test remains halted until restart.',
+                 'Clear the obstacle interlock through its producer before retrying START.')
+        age = int.from_bytes(payload[14:16], 'little')
+        return dict(state=STATES[payload[1]], stop_reason=payload[2], start_block=payload[3],
+                    start_block_label=blocks[payload[3]], start_hint=hints[payload[3]],
+                    motor_ready=bool(payload[4]&1), line_valid=bool(payload[4]&2),
+                    line_stop=bool(payload[4]&4), obstacle_blocked=bool(payload[4]&8),
+                    start_pending=bool(payload[4]&16), stop_pending=bool(payload[4]&32),
+                    link_ready=bool(payload[4]&64), motor_faults=payload[5],
+                    left_dark=raw[0], centre_dark=raw[1], right_dark=raw[2],
+                    left_target_rpm=payload[12], right_target_rpm=payload[13],
+                    line_age_ms=None if age==65535 else age,
+                    uptime_ms=int.from_bytes(payload[16:20],'little'),
+                    telemetry_drops=int.from_bytes(payload[20:24],'little'),
+                    last_start_reject=payload[24], last_reject_label=blocks[payload[24]],
+                    last_reject_hint=hints[payload[24]])
     if kind == 'vehicle':
         state, faults = bits(0, 3), bits(3, 5)
         if state >= len(STATES): raise ValueError('Unknown vehicle state')

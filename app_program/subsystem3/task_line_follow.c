@@ -111,6 +111,15 @@ EXPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd)
     }
 }
 
+/* Do not latch the junction test during startup/IDLE: that could reject
+ * every subsequent START before the car ever moved. */
+EXPORT BOOL line_junction_update(INT l,INT r,BOOL following,INT *elapsed_ms)
+{
+    if(!following || l<JUNC_DARK || r<JUNC_DARK){*elapsed_ms=0;return FALSE;}
+    if(*elapsed_ms<JUNCTION_MIN_MS)*elapsed_ms+=LINE_PERIOD_MS;
+    return *elapsed_ms>=JUNCTION_MIN_MS;
+}
+
 /* Send a command recommendation to the vehicle controller; never drive S2 here. */
 #include "../vehicle_controller/vehicle_controller.h"
 LOCAL ID owner_id;
@@ -129,9 +138,7 @@ EXPORT void line_follow_task(INT stacd,void *exinf)
     for(;;){
         tk_slp_tsk(TMO_FEVR);(void)tk_can_wup(owner_id);
         if(line_sense(&l,&c,&r)!=E_OK){vehicle_invalidate_line();st=(LF_STATE){0};continue;}
-        if(l>=JUNC_DARK && r>=JUNC_DARK)junc_ms+=LINE_PERIOD_MS;
-        else junc_ms=0;
-        if(!halted && junc_ms>=JUNCTION_MIN_MS){
+        if(!halted && line_junction_update(l,r,vehicle_is_following(),&junc_ms)){
             halted=TRUE;tm_printf((UB*)"[S3] junction: stop recommendation\n");
         }
         line_decide(l,c,r,&st,&cmd);

@@ -153,6 +153,19 @@ def main():
             expect(page.locator("#obstacle-nearest")).to_have_text("500 mm")
             assert page.locator("#left-rpm-path").get_attribute("d")
             print("PASS end-to-end telemetry: all five binary topics decoded over real broker, HTTP and browser")
+            # Specific START rejection is surfaced without bypassing Pico guards.
+            diag = bytearray(25);diag[0]=1;diag[3]=7;diag[4]=1|2|4|64;diag[24]=7
+            diag[6:8]=(900).to_bytes(2,"little");diag[10:12]=(850).to_bytes(2,"little")
+            fixture.publish(root + "/controller",diag).wait_for_publish(timeout=5)
+            expect(page.locator("#start-blocker")).to_have_text("Junction / line stop latched")
+            expect(page.locator("#pico-state")).to_have_text("START blocked by controller")
+            assert page.locator("#start").is_disabled() and page.locator("#stop").is_enabled()
+            fixture.publish(root + "/ack",b"\x03").wait_for_publish(timeout=5)
+            expect(page.locator("#command-feedback")).to_contain_text("Junction / line stop latched")
+            diag[3]=0;diag[4]=1|2|64
+            fixture.publish(root + "/controller",diag).wait_for_publish(timeout=5)
+            expect(page.locator("#start")).to_be_enabled()
+            print("PASS diagnostics: specific START blocker, IR values, disabled START and preserved STOP; clearing blocker enables retry")
             # Fresh signal for a representative desktop screenshot.
             fixture.publish(root + "/status", b"\x07", qos=0, retain=True).wait_for_publish(timeout=5)
             page.wait_for_timeout(1100)

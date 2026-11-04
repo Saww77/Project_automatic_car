@@ -30,7 +30,7 @@ The Pico must run the MQTT firmware (`make NET=lwip MQTT=1`), not the normal non
 
 All values come from received MQTT payloads. The current two-sensor Pico configuration leaves the centre flag unset; an unset flag does not prove a centre sensor is installed or reading white. Barcode decoding is currently disabled. Terrain and obstacle producers are not connected in the normal firmware, so those cards correctly stay **No data** until real producers submit valid measurements. They do not display invented zeros.
 
-The current Pico protocol does not publish raw IR darkness, target RPM, controller stop reason, telemetry-drop count, tilt, turn rate or total distance. Those cannot be reconstructed accurately by the dashboard. Wheel progress is counts for bounded moves, not cumulative distance. The global speed level is a legacy selection, not the per-wheel fine-RPM target. A displayed mission state reports controller intent; actual wheel RPM reports measured motion.
+The matching diagnostics firmware additionally publishes normalized IR darkness, target RPM, controller stop reason and telemetry-drop count on `/controller`. Older firmware does not publish these fields. Raw ADC values, tilt, turn rate and total distance remain unavailable. Wheel progress is counts for bounded moves, not cumulative distance. The global speed level is a legacy selection, not the per-wheel fine-RPM target. A displayed mission state reports controller intent; actual wheel RPM reports measured motion.
 
 ## Freshness and commands
 
@@ -48,6 +48,7 @@ Subscriptions use the configured root and these suffixes:
 
 | Topic | Bytes | Decode |
 |---|---:|---|
+| `controller` |25| versioned startup guard, readiness, normalized IR, target RPM, line age and drop count; see VEHICLE_CONTROLLER.md |
 | `status` |1| Wi-Fi1, broker2, command subscription4, TX drop8, RX drop16 |
 | `ack` |1| requested command in bit0; rejected in bit1 |
 | `vehicle` |1| state bits0..2, fault mask bits3..7 |
@@ -74,3 +75,7 @@ python3 tests/test_browser.py --screenshot /tmp/se09-dashboard.png
 ```
 
 Set `BUDDY1_MOSQUITTO` or `BUDDY1_BROWSER` if executable paths are not discoverable. The integration test starts its own local broker and simulated-Pico protocol fixture, tests actual HTTP/browser commands and all telemetry topics, then shuts down its processes. The fixture is explicitly not hardware validation. See TEST_RESULTS.md for executed outcomes.
+
+## If START is rejected
+
+Replace both the dashboard and Pico firmware with matching current versions. A heartbeat confirms network connectivity, not that the motors and sensors are ready. The Vehicle controller panel reports the actual START blocker. Wait at least five seconds after power-up and start on a straight section, not a crossing. Read the named blocker before resetting faults. If it says diagnostics unavailable, the Pico is running older firmware or the topic root does not match. Send the blocker text and IR/target values for diagnosis; a generic one-byte rejected ACK alone cannot identify the cause.

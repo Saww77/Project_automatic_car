@@ -17,14 +17,20 @@ void vehicle_invalidate_line(void);
 BOOL vehicle_submit_terrain(unsigned height_mm,unsigned phase);
 BOOL vehicle_submit_obstacle(unsigned near_mm,unsigned width_mm,unsigned left_mm,
                              unsigned right_mm,BOOL blocked);
+typedef enum { VC_START_READY, VC_START_STARTUP, VC_START_LINK, VC_START_MOTOR,
+               VC_START_STOP_PENDING, VC_START_NO_LINE, VC_START_OLD_LINE,
+               VC_START_LINE_STOP, VC_START_OBSTACLE } VC_START_BLOCK;
 typedef struct {
     VC_STATE state; VC_REASON reason;
     uint32_t timestamp_ms,line_timestamp_ms,terrain_timestamp_ms,obstacle_timestamp_ms;
     INT l,c,r; unsigned left_rpm,right_rpm,barcode,motor_faults;
     unsigned height_mm,terrain_phase,near_mm,width_mm,clear_left_mm,clear_right_mm;
     unsigned telemetry_drops;
+    VC_START_BLOCK start_block,last_start_reject;
+    BOOL motor_ready,link_ready,start_pending,stop_pending;
     BOOL line_valid,line_stop,terrain_valid,obstacle_valid,obstacle_blocked;
 } VEHICLE_SNAPSHOT;
 BOOL vehicle_get_snapshot(VEHICLE_SNAPSHOT *out);
+BOOL vehicle_is_following(void);
 void vehicle_record_telemetry_drop(void);
 #endif

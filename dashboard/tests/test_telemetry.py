@@ -69,11 +69,25 @@ class TelemetryTests(unittest.TestCase):
         for _ in range(200):self.send('motion',motion_packet())
         self.assertEqual(len(self.d.snapshot()['motion_history']),120)
         self.assertLessEqual(len(self.d.snapshot()['events']),40)
+    def test_controller_explains_start_block_without_weakening_guards(self):
+        packet=bytearray(25);packet[0]=1;packet[3]=7;packet[4]=1|2|4|64
+        packet[6:8]=(900).to_bytes(2,'little');packet[10:12]=(850).to_bytes(2,'little')
+        packet[24]=7
+        self.send('status',b'\x07')
+        self.send('controller',packet)
+        state=self.d.snapshot()
+        self.assertFalse(state['start_allowed'])
+        self.assertEqual(state['telemetry']['controller']['data']['start_block_label'],'Junction / line stop latched')
+        packet[3]=0;packet[4]=1|2|64;self.send('controller',packet)
+        self.assertTrue(self.d.snapshot()['start_allowed'])
+        packet[0]=2
+        with self.assertRaises(ValueError):decode_telemetry('controller',packet)
+
     def test_subscribes_every_topic(self):
         result=[]
         client=SimpleNamespace(subscribe=lambda topics:(result.extend(topics) or (0,1)))
         self.d.on_connect(client,None,None,SimpleNamespace(is_failure=False),None)
         self.assertEqual({topic.rsplit('/',1)[-1] for topic,qos in result},
-                         {'status','ack','motion','line','terrain','obstacle','vehicle'})
+                         {'status','ack','motion','line','terrain','obstacle','vehicle','controller'})
 
 if __name__=='__main__':unittest.main()

@@ -51,6 +51,7 @@ typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
 IMPORT INT  ir_read(INT ch);
 IMPORT ER   line_sense(INT *l, INT *c, INT *r);
 IMPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd);
+IMPORT BOOL line_junction_update(INT l,INT r,BOOL following,INT *elapsed_ms);
 IMPORT void line_follow_task(INT stacd, void *exinf);
 
 /* Motion Control calls go through motion_adapter.c (prints now, real later) */

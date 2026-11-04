@@ -131,3 +131,6 @@ progress { width:100%; height:7px; margin-top:8px; accent-color:var(--teal); }
 @media(max-width:500px) { .mission-value { font-size:25px; } .wheel-grid { gap:16px; } .metric { font-size:30px; } .sample-status { font-size:10px; } }
 
 .telemetry-card.stale .fault-list,.telemetry-card.stale .mode-row { opacity:.5; }
+
+.controller-checks {margin-top:18px;border-top:1px solid var(--border);padding-top:18px;font-size:12px;}
+.controller-checks p {color:var(--muted);font-size:11px;}
