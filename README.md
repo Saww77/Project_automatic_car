@@ -260,3 +260,5 @@ T-License 2.2. This dual-core RP2040 port is derived from the official
 ## Vehicle controller and telemetry
 
 See [VEHICLE_CONTROLLER.md](VEHICLE_CONTROLLER.md) for central motion ownership, binary MQTT telemetry, Wi-Fi/broker configuration, laptop monitoring and START/STOP commands. The normal build retains autostart; `NET=lwip MQTT=1` boots stopped until a valid MQTT START. Both retain the existing first-junction stop; autonomous barcode turns and obstacle bypass remain unimplemented.
+
+The [browser dashboard](dashboard/README.md) displays binary MQTT telemetry, mission state, wheel RPM/PWM, line/barcode flags, terrain/obstacle samples when available, connection health and START/STOP controls.
