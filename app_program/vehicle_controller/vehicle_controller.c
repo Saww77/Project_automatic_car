@@ -25,7 +25,7 @@ ER vehicle_init(void)
     guard=tk_cre_mtx(&m);
     if(guard<E_OK)return guard;
     data=(VEHICLE_SNAPSHOT){0};model=(VC_MODEL){0};
-    start_pending=stop_pending=reset_pending=FALSE;auto_pending=VC_AUTO_START;
+    start_pending=stop_pending=reset_pending=FALSE;auto_pending=APP_LINE_CALIBRATE?FALSE:VC_AUTO_START;
     return E_OK;
 }
 void vehicle_submit_line(INT l,INT c,INT r,INT left,INT right,BOOL stop,unsigned barcode)
@@ -55,6 +55,7 @@ void vehicle_request_stop(void)
 { if(lock()){stop_pending=TRUE;start_pending=reset_pending=FALSE;auto_pending=FALSE;unlock();} }
 static VC_START_BLOCK start_block(BOOL ready,BOOL linked,unsigned faults,uint32_t now)
 {
+    if(APP_LINE_CALIBRATE)return VC_START_CALIBRATION;
     if(faults)return VC_START_MOTOR;
     if(!linked)return VC_START_LINK;
     if(!ready)return VC_START_STARTUP;

@@ -2,7 +2,7 @@
 
 ## What is implemented
 
-`app_program/vehicle_controller/` coordinates the vehicle. It is the normal application owner of Buddy 2 movement requests. Buddy 3 samples the line and submits a copied latest-value recommendation; Buddy 1 forwards MQTT START/STOP intent instead of writing motor speed. The controller preserves the existing line_decide algorithm and motor PID.
+`app_program/vehicle_controller/` coordinates the vehicle. It is the normal application owner of Buddy 2 movement requests. Buddy 3 samples the line and submits a copied latest-value recommendation; Buddy 1 forwards MQTT START/STOP intent instead of writing motor speed. The controller applies Buddy3 steering recommendations; Buddy3 now uses PD and its own line-mode state machine (see LINE_FOLLOWING_GUIDE.md). The wheel-speed PID is independent.
 
 The current states that actually execute are IDLE(0), FOLLOW_LINE(1), and FAULT(5). TURNING(2), AVOIDING(3), RECOVER_LINE(4) are reserved for future mission actions. Barcode decoding is still disabled, the first-junction stop remains enabled, and Buddy 5 remains a hardware-driver template. This does not claim full-course navigation or corrected physical curve tracking.
 
@@ -129,3 +129,7 @@ Fractional RPM filtering also fixes the old stopped-display rounding equilibrium
 New explicit command byte02 requests RESET only when stopped with a motor fault and no pending START. ACK04 accepts RESET for processing; ACK06 rejects it. Original STOP00/START01 and ACK00..03 remain unchanged. The vehicle controller owns and retries the queued clear until it observes zero motor faults, then enters IDLE. It never starts the car; a separate START is required. STOP cancels a pending reset. Dashboard RESET requires fresh stopped-motor diagnostics, and is disabled on older firmware. Reset does not bypass invalid/stale IR, obstacle or junction checks.
 
 Controller diagnostics version2 uses31 bytes. Bytes0..24 retain version1 field offsets, except byte0=2 and readiness bit7=reset-pending. Bytes25..28 add the latched timing gap in microseconds (uint32 LE), bytes29..30 the active gap limit (uint16 LE). The dashboard accepts both version1/25-byte and version2/31-byte messages; it displays measured gap versus limit alongside a timing fault. New internal transport payload remains within the32-byte limit.
+
+## PD line-controller integration
+
+Buddy3 now provides PD-based recommendations with separate TRACK/TIGHT/RECOVER/LOST modes, without changing vehicle-controller ownership or motor PID. See LINE_FOLLOWING_GUIDE.md. `LINE_CALIBRATE=1` disables autostart and rejects START with blocker9 (calibration-only mode); it also invalidates movement recommendations while reading raw ADC values. The profile is separately named and cannot be combined with motor-test/demo profiles. Reserved vehicle mission states remain unimplemented.

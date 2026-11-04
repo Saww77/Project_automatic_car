@@ -2,7 +2,7 @@
 
 ## Passed
 
-- 23 Python protocol/state/HTTP tests (`python3 -m unittest discover -s tests -p 'test_*.py' -v`). Covers existing binary commands and local HTTP checks, every telemetry subscription/decoder, field bounds and padding, independent freshness, retained/malformed sample rejection, reconnect invalidation, fault labels and bounded history.
+- 24 Python protocol/state/HTTP tests (`python3 -m unittest discover -s tests -p 'test_*.py' -v`). Covers existing binary commands and local HTTP checks, every telemetry subscription/decoder, field bounds and padding, independent freshness, retained/malformed sample rejection, reconnect invalidation, fault labels and bounded history.
 - JavaScript syntax check (`node --check web/app.js`).
 - Real Mosquitto 2.0.21 plus Chromium 155 / Playwright integration, using paho-mqtt 2.1.0 and a simulated Pico protocol fixture.
 - CLI startup/address prompt, no automatic START, actual HTTP-to-broker binary START/STOP, ACK display, rapid START/STOP ordering, all five telemetry topics through MQTT/HTTP/browser, RPM trend rendering, missing-data placeholders, independent stale indicators, motor/vehicle faults, mobile width, heartbeat expiry and broker loss.
@@ -30,3 +30,5 @@ The protocol fixture is software, not the physical Pico. Actual car Wi-Fi, broke
 The additive controller diagnostic packet and specific START blocker/IR display also passed unit and real-broker/browser tests. START disables for a fresh blocker while STOP remains available; clearing the blocker permits retry. The Pico startup/junction fix was validated in line-controller host tests and both firmware builds. Physical motion remains unverified.
 
 Timing/reset update: version2 timing-gap/limit decoding and stopped-only RESET availability passed unit tests. The browser integration sends exact binary02 through the local broker, receives ACK04 and verifies the fixture remains IDLE without any automatic START. Physical car timing remains unverified.
+
+PD integration: calibration-only START blocker9 and its explicit motor-disabled message passed the added dashboard unit test. Driving telemetry byte layouts remain unchanged.

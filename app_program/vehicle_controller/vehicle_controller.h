@@ -5,6 +5,9 @@
 #ifndef TM_MQTT
 #define TM_MQTT 0
 #endif
+#ifndef APP_LINE_CALIBRATE
+#define APP_LINE_CALIBRATE 0
+#endif
 /* No application task outside this controller normally commands S2 motors. */
 ER vehicle_init(void);
 ER vehicle_start_task(void);
@@ -20,7 +23,7 @@ BOOL vehicle_submit_obstacle(unsigned near_mm,unsigned width_mm,unsigned left_mm
                              unsigned right_mm,BOOL blocked);
 typedef enum { VC_START_READY, VC_START_STARTUP, VC_START_LINK, VC_START_MOTOR,
                VC_START_STOP_PENDING, VC_START_NO_LINE, VC_START_OLD_LINE,
-               VC_START_LINE_STOP, VC_START_OBSTACLE } VC_START_BLOCK;
+               VC_START_LINE_STOP, VC_START_OBSTACLE, VC_START_CALIBRATION } VC_START_BLOCK;
 typedef struct {
     VC_STATE state; VC_REASON reason;
     uint32_t timestamp_ms,line_timestamp_ms,terrain_timestamp_ms,obstacle_timestamp_ms;

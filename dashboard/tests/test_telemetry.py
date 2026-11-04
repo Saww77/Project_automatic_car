@@ -99,6 +99,12 @@ class TelemetryTests(unittest.TestCase):
         self.send('ack',b'\x04');self.assertEqual(self.d.snapshot()['last_ack']['command'],'reset')
         self.send('ack',b'\x06');self.assertTrue(self.d.snapshot()['last_ack']['rejected'])
 
+    def test_calibration_profile_is_explicitly_motor_disabled(self):
+        packet=bytearray(31);packet[0]=2;packet[3]=9;packet[24]=9
+        self.send('status',b'\x07');self.send('controller',packet)
+        state=self.d.snapshot();self.assertFalse(state['start_allowed'])
+        self.assertIn('calibration mode',state['telemetry']['controller']['data']['start_block_label'])
+
     def test_subscribes_every_topic(self):
         result=[]
         client=SimpleNamespace(subscribe=lambda topics:(result.extend(topics) or (0,1)))

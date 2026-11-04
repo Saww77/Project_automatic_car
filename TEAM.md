@@ -201,3 +201,7 @@ Integration interfaces: vehicle_submit_line / vehicle_invalidate_line (Buddy3 â†
 ## Motor timing integration revision
 
 The motor task now runs at application priority5 on physical core1. Buddy1 communication (priority13), Wi-Fi and USB stay on physical core0; the vehicle controller remains priority15 on core0. PID service runs before transport/status mutex work. The nominal motor period remains10 ms, with a bounded5 ms scheduling allowance; gaps above15 ms still latch a timing fault. Integral/derivative terms use actual elapsed time. Explicit stopped-only RESET clears faults without starting motion. START is still required after reset.
+
+## PD line following
+
+Buddy3 owns the pure PD TRACK/TIGHT/RECOVER/LOST state machine, per-sensor calibration and ADC sampling. It submits only recommendations to the vehicle controller. LINE_CALIBRATE=1 is a separately named motor-disabled profile with START blocked. No sensor pins, motor timing priorities or communication ownership are changed by this integration. See LINE_FOLLOWING_GUIDE.md for on-car measurement and tuning.

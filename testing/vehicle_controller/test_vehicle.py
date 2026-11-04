@@ -211,3 +211,20 @@ with tempfile.TemporaryDirectory() as temp:
  source.write_text(prelude.replace('#define TM_MQTT 1','#define TM_MQTT 0').replace('#define VC_AUTO_START 0','#define VC_AUTO_START 1')+headers+mocks+sources+normal_tests)
  subprocess.run(['gcc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-unused-function','-Wno-unused-variable',str(source),'-o',str(binary)],check=True)
  subprocess.run([str(binary)],check=True)
+
+calibration_tests = r'''
+int main(void){
+ links=7;motor_ready=true;assert(vehicle_init()==0);assert(!auto_pending);
+ vehicle_submit_line(0,0,0,30,30,FALSE,0);
+ assert(!vehicle_request_start());
+ VEHICLE_SNAPSHOT status;assert(vehicle_get_snapshot(&status));
+ assert(status.start_block==VC_START_CALIBRATION);
+ vehicle_service_once();assert(!model.running && commands==0);
+ puts("PASS: calibration profile disables autostart and refuses START even with ready motors and fresh recommendations");
+}
+'''
+with tempfile.TemporaryDirectory() as temp:
+ source=Path(temp)/'test.c';binary=Path(temp)/'test'
+ source.write_text('#define APP_LINE_CALIBRATE 1\n'+prelude+headers+mocks+sources+calibration_tests)
+ subprocess.run(['gcc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-unused-function','-Wno-unused-variable',str(source),'-o',str(binary)],check=True)
+ subprocess.run([str(binary)],check=True)

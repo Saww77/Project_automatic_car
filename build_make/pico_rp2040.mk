@@ -81,6 +81,15 @@ endif
 MQTT_SUFFIX := _mqtt
 endif
 
+# Calibration image reads sensors but cannot accept START or autostart.
+LINE_CALIBRATE ?= 0
+ifneq ($(filter $(LINE_CALIBRATE),0 1),$(LINE_CALIBRATE))
+$(error Unknown LINE_CALIBRATE '$(LINE_CALIBRATE)'; use 0 or 1)
+endif
+ifeq ($(LINE_CALIBRATE),1)
+CAL_SUFFIX := _line_calibration
+endif
+
 # TEST=1 builds the subsystem self-tests into the image (APP_TEST=1 in C).
 # The image gets a _test suffix so it cannot be mistaken for the normal one.
 TEST ?= 0
@@ -106,6 +115,12 @@ ifneq ($(SMP),1)
 $(error BUDDY1_DEMO=1 requires SMP=1 for Buddy 2 encoder IRQ ownership)
 endif
 DEMO_SUFFIX := _b1demo
+endif
+
+ifeq ($(LINE_CALIBRATE),1)
+ifneq ($(TEST)$(BUDDY1_DEMO),00)
+$(error LINE_CALIBRATE=1 cannot be combined with TEST=1 or BUDDY1_DEMO=1)
+endif
 endif
 
 # CRASH_REPORT=1 also copies every console line to UART0 on GP0 (TX) /
@@ -140,7 +155,7 @@ endif
 # only the banner in the log revealed it.
 #
 #EXE_FILE := mtk3pico_smp$(SMP)_$(CONSOLE)$(WIFI_SUFFIX)$(NET_SUFFIX)$(MQTT_SUFFIX)$(CRASH_SUFFIX)$(TEST_SUFFIX)
-EXE_FILE := mtk3pico_smp$(SMP)_$(CONSOLE)$(WIFI_SUFFIX)$(NET_SUFFIX)$(MQTT_SUFFIX)$(CRASH_SUFFIX)$(DEMO_SUFFIX)$(TEST_SUFFIX)
+EXE_FILE := mtk3pico_smp$(SMP)_$(CONSOLE)$(WIFI_SUFFIX)$(NET_SUFFIX)$(MQTT_SUFFIX)$(CRASH_SUFFIX)$(DEMO_SUFFIX)$(TEST_SUFFIX)$(CAL_SUFFIX)
 
 GCC := arm-none-eabi-gcc
 AS := arm-none-eabi-gcc
@@ -201,7 +216,7 @@ CFLAGS  += -DCNF_SMP=1
 ASFLAGS += -DCNF_SMP=1
 endif
 #CFLAGS  += -DAPP_TEST=$(TEST)
-CFLAGS  += -DAPP_TEST=$(TEST) -DAPP_BUDDY1_DEMO=$(BUDDY1_DEMO)
+CFLAGS  += -DAPP_TEST=$(TEST) -DAPP_BUDDY1_DEMO=$(BUDDY1_DEMO) -DAPP_LINE_CALIBRATE=$(LINE_CALIBRATE)
 CFLAGS  += -DTM_CONSOLE_UART=$(CRASH_REPORT)
 ifeq ($(CRASH_REPORT),0)
 CFLAGS  += -DBOARD_UART0_FREE=1
@@ -234,7 +249,7 @@ endif
 # before any recipe executes.
 ################################################################################
 #PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-net$(NET)-mqtt$(MQTT)-crash$(CRASH_REPORT)-test$(TEST)
-PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-net$(NET)-mqtt$(MQTT)-crash$(CRASH_REPORT)-test$(TEST)-b1demo$(BUDDY1_DEMO)
+PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-net$(NET)-mqtt$(MQTT)-crash$(CRASH_REPORT)-test$(TEST)-b1demo$(BUDDY1_DEMO)-linecal$(LINE_CALIBRATE)
 PROFILE_FILE := .build_profile
 
 ifneq ($(strip $(shell cat $(PROFILE_FILE) 2>/dev/null)),$(PROFILE_ID))

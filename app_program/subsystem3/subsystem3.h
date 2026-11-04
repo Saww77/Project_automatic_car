@@ -16,21 +16,7 @@
 
 /* ---- Line following: tunables ---- */
 #define S3_PRI_LINE       17
-#define S3_IR_MASK   	  0x5    /* GP26 left + GP28 right; use 0x7 ONLY with GP27 centre wired. */
-#define JUNC_DARK         600   /* both sensors must be at least this dark (0..1000) */
-#define JUNCTION_MIN_MS   30    /* ...for at least this long */
-
-#define LINE_PERIOD_MS    10
-#define LINE_DARK         600   /* calibrated darkness required before steering */
-#define POS_STRAIGHT      150
-#define POS_GENTLE        450
-#define S3_CRUISE_RPM     30    /* about 0.105 m/s with 67 mm wheels */
-#define S3_CURVE_RPM      24
-#define S3_INNER_RPM      12
-#define LEVEL_STOPPED     0
-#define LOST_SUM_MAX      150
-#define LOST_TIMEOUT_MS   1000
-#define S3_RESEND_MS   100
+#include "line_control.h"
 
 // Barcode
 #define S3_TICK_MS       1      /* barcode sampling tick */
@@ -44,14 +30,8 @@ IMPORT void barcode_feed(INT dark);
 IMPORT char barcode_take(void);
 IMPORT BOOL barcode_busy(void);
 
-typedef struct { INT last_pos; INT lost_ms; } LF_STATE;
-/* Wheel commands are RPM, not speed levels. */
-typedef struct { INT left; INT right; BOOL stop; } LF_CMD;
-
 IMPORT INT  ir_read(INT ch);
 IMPORT ER   line_sense(INT *l, INT *c, INT *r);
-IMPORT void line_decide(INT l, INT c, INT r, LF_STATE *st, LF_CMD *cmd);
-IMPORT BOOL line_junction_update(INT l,INT r,BOOL following,INT *elapsed_ms);
 IMPORT void line_follow_task(INT stacd, void *exinf);
 
 /* Motion Control calls go through motion_adapter.c (prints now, real later) */

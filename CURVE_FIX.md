@@ -1,3 +1,5 @@
+> Current steering implementation: see [LINE_FOLLOWING_GUIDE.md](LINE_FOLLOWING_GUIDE.md). The notes below describe historical baseline/rollback behaviour, superseded by PD TRACK/TIGHT/RECOVER/LOST control. Motor timing and manual fault recovery are retained.
+
 > Vehicle-controller integration: line_decide() and motor tuning remain at the restored baseline. The line task now submits recommendations to the central controller using a direct 10 ms release, rather than writing motor commands. MQTT builds wait for START. See VEHICLE_CONTROLLER.md for the new ownership, telemetry and startup behaviour. Physical curve performance remains unverified.
 
 # Rollback after v4 failed to turn
